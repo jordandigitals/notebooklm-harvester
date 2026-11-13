@@ -90,6 +90,12 @@ It holds the saved Google sign-ins (`home/profiles/<account>/storage_state.json`
 
 On Windows the folder is inside your user profile, which Windows already limits to your account.
 
+## Windows notes
+
+- **Quit Chrome before adding an account from a Chrome profile.** Windows keeps Chrome's sign-in data locked while Chrome runs, including in the background. Close every Chrome window, then right-click the Chrome icon near the clock (if shown) and choose Exit. Open this page in another browser, such as Edge, for that step. You can reopen Chrome as soon as the account shows Signed in. The same applies to **Sign in again** on an account added from Chrome.
+- **Windows Security may quarantine the Chrome reader.** Reading Chrome's saved sign-in is what info-stealing malware also does, so Microsoft Defender can flag the reader file (`rookie_cookies.pyd` in `.venv`) as `Trojan:Win64/InfoStealer`. It is part of the pinned notebooklm-py dependency and only reads your own Chrome on your own computer. To use the Chrome route, open Windows Security, Virus and threat protection, Protection history, select that entry, then Actions and Allow on device. If you would rather not, use **Sign in** instead: it signs in once in a separate Chrome window kept just for this app and never reads your normal Chrome.
+- **Long paths.** Saved files go into `<folder>/<notebook title>/<overview title>.mp3`. With long titles and a deep output folder the full path can pass 260 characters, which a standard Windows setup refuses. Choose a short output folder (for example `C:\NLH`), or turn on Windows long paths.
+
 ## Updating
 
 ```

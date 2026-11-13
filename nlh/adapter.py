@@ -267,6 +267,9 @@ def download_overview(profile_name: str, overview: AudioOverview, dest: Path) ->
 def _cli_env() -> dict[str, str]:
     """Environment for library CLI subprocesses: the app's own NOTEBOOKLM_HOME."""
     env = dict(os.environ)
+    if not getattr(sys, "frozen", False):
+        # The Windows wrapper runs as "python -m nlh.adapter", so the app must be importable.
+        env["PYTHONPATH"] = os.pathsep.join(p for p in (str(paths.app_dir()), env.get("PYTHONPATH")) if p)
     env["NOTEBOOKLM_HOME"] = str(paths.notebooklm_home())
     env.pop("NOTEBOOKLM_PROFILE", None)
     env["PYTHONIOENCODING"] = "utf-8"
@@ -277,7 +280,13 @@ LIBRARY_CLI_FLAG = "--notebooklm-cli"
 
 
 def run_library_cli(args: list[str]) -> None:
-    """Run the library's own command line in this process (packaged app sub-command)."""
+    """Run the library's own command line in this process.
+
+    Used by the packaged app sub-command and by "python -m nlh.adapter" on Windows.
+    On Windows the Chrome cookie fix is applied first (see _windows_chrome_cookie_fix).
+    """
+    if sys.platform == "win32":
+        _windows_chrome_cookie_fix()
     from notebooklm.notebooklm_cli import main as library_main
 
     sys.argv = ["notebooklm", *args]
@@ -292,9 +301,16 @@ def interactive_available() -> bool:
 
 
 def _cli(args: list[str], timeout: int) -> subprocess.CompletedProcess:
-    """Run the pinned library CLI. Output is captured and never logged raw."""
+    """Run the pinned library CLI. Output is captured and never logged raw.
+
+    Packaged app: the executable runs the library itself (LIBRARY_CLI_FLAG). Source run on
+    Windows: through this module (python -m nlh.adapter). Both go via run_library_cli,
+    which applies the Windows Chrome cookie fix before handing over to the library.
+    """
     if getattr(sys, "frozen", False):
         cmd = [sys.executable, LIBRARY_CLI_FLAG, *args]
+    elif sys.platform == "win32":
+        cmd = [sys.executable, "-m", "nlh.adapter", *args]
     else:
         cmd = [sys.executable, "-m", "notebooklm", *args]
     return subprocess.run(
@@ -332,13 +348,30 @@ def _login_result(proc: subprocess.CompletedProcess, profile_name: str, verify: 
     paths.secure_session_file(profile_name)
     if proc.returncode == 0 and paths.storage_path(profile_name).exists():
         return check_session(profile_name) if verify else SessionStatus("ok", "Signed in.")
-    tail = [
-        ln
-        for ln in (proc.stderr or "").splitlines()
+    # The library prints its errors to stdout as well as stderr; look at both.
+    lines = [
+        ln.strip()
+        for ln in ((proc.stdout or "") + "\n" + (proc.stderr or "")).splitlines()
         if ln.strip() and "unseal" not in ln.lower() and "keychain" not in ln.lower()
-    ][-2:]
-    log.warning("login for %s failed (exit %d): %s", profile_name, proc.returncode, redact(" | ".join(tail)))
-    return SessionStatus("needs_sign_in", "Sign-in did not complete. Details are in the log.")
+    ]
+    log.warning(
+        "login for %s failed (exit %d): %s", profile_name, proc.returncode, redact(" | ".join(lines[-3:]))
+    )
+    return SessionStatus("needs_sign_in", _login_failure_message(" ".join(lines).lower()))
+
+
+def _login_failure_message(text: str) -> str:
+    """A plain message for the usual reasons a sign-in copy from Chrome fails."""
+    if "locked" in text or "being used by another process" in text:
+        return (
+            "Chrome is still open, so its sign-in could not be read. "
+            "Quit Chrome completely (also its icon near the clock), then try again."
+        )
+    if "dll load failed" in text or "virus" in text:
+        return "Windows security blocked the part that reads Chrome's sign-in. See INSTALL.md, Windows notes."
+    if "no populated" in text or "was not found" in text:
+        return "That Chrome profile has no saved Google sign-in on this computer."
+    return "Sign-in did not complete. Details are in the log."
 
 
 def login_from_chrome(
@@ -363,8 +396,67 @@ def login_from_chrome(
     return _login_result(proc, profile_name, verify)
 
 
+GOOGLE_SIGNIN_URL = "https://accounts.google.com/ServiceLogin?continue=https%3A%2F%2Fnotebooklm.google.com%2F"
+# Google sets these only after a real sign-in. Only cookie NAMES are looked at, never values.
+SIGNED_IN_COOKIE_NAMES = frozenset({"SID", "__Secure-1PSID"})
+
+
+def _google_signin_window(profile_name: str, timeout_s: int) -> bool:
+    """Open Chrome on Google's sign-in page and wait until Google has really signed in.
+
+    Why: notebooklm-py 0.8.2 counts any landing on the NotebookLM web address as signed
+    in, but a signed-out browser also lands there (Google's public NotebookLM page), so
+    a fresh profile was saved with no Google sign-in at all (found in M4, 2026-11-13).
+    This window uses the same browser profile folder the library uses for the account,
+    so after it closes the library finds a real Google session and saves it.
+    Returns True once signed in and on NotebookLM, False on timeout or a closed window.
+    """
+    from urllib.parse import urlparse
+
+    from playwright.sync_api import sync_playwright
+
+    browser_profile = paths.profile_dir(profile_name) / "browser_profile"
+    browser_profile.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + timeout_s
+    with sync_playwright() as pw:
+        ctx = pw.chromium.launch_persistent_context(
+            user_data_dir=str(browser_profile),
+            headless=False,
+            channel="chrome",
+            no_viewport=True,
+            args=["--disable-blink-features=AutomationControlled", "--password-store=basic"],
+            ignore_default_args=["--enable-automation"],
+        )
+        try:
+            page = ctx.pages[0] if ctx.pages else ctx.new_page()
+            page.goto(GOOGLE_SIGNIN_URL)
+            while time.monotonic() < deadline:
+                pages = list(ctx.pages)  # one snapshot: tabs can close between reads
+                if not pages:
+                    return False  # the person closed the window
+                names = {c["name"] for c in ctx.cookies("https://accounts.google.com")}
+                hosts = {urlparse(pg.url).hostname or "" for pg in pages}
+                on_notebooklm = any(h.endswith("notebooklm.google.com") for h in hosts)
+                if names & SIGNED_IN_COOKIE_NAMES and on_notebooklm:
+                    return True
+                time.sleep(1)
+            return False
+        except Exception as exc:  # window closed mid-wait, or Chrome could not start
+            log.info("sign-in window ended: %s", type(exc).__name__)
+            return False
+        finally:
+            try:
+                ctx.close()
+            except Exception:  # already closed by the person
+                pass
+
+
 def login_interactive(profile_name: str, timeout_s: int = 300) -> SessionStatus:
     """Open Chrome for a fresh Google sign-in and save the session to a new profile."""
+    if not _google_signin_window(profile_name, timeout_s):
+        return SessionStatus(
+            "needs_sign_in", "Google sign-in was not finished. Try again and sign in in the Chrome window."
+        )
     try:
         proc = _cli(
             [
@@ -374,9 +466,9 @@ def login_interactive(profile_name: str, timeout_s: int = 300) -> SessionStatus:
                 "--browser",
                 "chrome",
                 "--browser-timeout",
-                str(timeout_s),
+                "60",
             ],
-            timeout_s + 60,
+            120,
         )
     except subprocess.TimeoutExpired:
         return SessionStatus("needs_sign_in", "Sign-in was not finished in time.")
@@ -407,3 +499,63 @@ def list_chrome_profiles(local_state: Path | None = None) -> list[ChromeProfile]
         for folder, info in cache.items()
     ]
     return sorted((p for p in out if p.email), key=lambda p: p.folder)
+
+
+# ------------------------------------------------- Windows Chrome cookie fix
+
+
+def _windows_chrome_cookie_fix() -> None:
+    """Point the pinned library at the folder where Windows Chrome keeps its cookies.
+
+    Chrome on Windows stores each profile's cookie database in <profile>/Network/Cookies.
+    notebooklm-py 0.8.2 (and 0.8.6, checked 2026-11-13) looks only for <profile>/Cookies,
+    so it finds no profile, and its reader cannot locate Chrome's key file from the
+    Network folder. This adds the Network/Cookies profiles and reads them with Chrome's
+    "Local State" key file. It runs only inside the sign-in subprocess on Windows and
+    reads cookies exactly as the library would. Remove it once the library does this.
+    """
+    from notebooklm.cli import _chromium_profiles as cp
+
+    original_discover = cp.discover_chromium_profiles
+    original_read = cp.read_chromium_profile_cookies
+
+    def discover(browser_name):
+        found = list(original_discover(browser_name))
+        if not cp.is_chromium_browser(browser_name):
+            return found
+        key = cp._canonical_chromium_browser_name(browser_name)
+        root = cp._user_data_dir(key)
+        if root is None or not root.is_dir():
+            return found
+        known = {p.directory_name for p in found}
+        names = cp._load_local_state_names(root)
+        for entry in sorted(root.iterdir()):
+            db = entry / "Network" / "Cookies"
+            if entry.name in known or not cp._PROFILE_DIR_RE.match(entry.name) or not db.is_file():
+                continue
+            found.append(
+                cp.ChromiumProfile(
+                    browser=key,
+                    directory_name=entry.name,
+                    human_name=names.get(entry.name, entry.name),
+                    cookies_db=db,
+                )
+            )
+        return found
+
+    def read(profile, *, domains):
+        db = Path(profile.cookies_db)
+        if db.parent.name == "Network":
+            import rookie_cookies
+
+            return rookie_cookies.chromium_based(
+                str(db.parent.parent.parent / "Local State"), str(db), domains
+            )
+        return original_read(profile, domains=domains)
+
+    cp.discover_chromium_profiles = discover
+    cp.read_chromium_profile_cookies = read
+
+
+if __name__ == "__main__":
+    run_library_cli(sys.argv[1:])
