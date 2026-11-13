@@ -75,3 +75,8 @@ def test_redact_removes_cookie_names_and_tokens():
     out = redact(text)
     for bad in ("SID", "__Secure", "SAPISID", "NID", "abc123", "x" * 40):
         assert bad not in out
+
+
+def test_redact_keeps_uuids_and_paths():
+    line = "saved artifact f9dd4176-ac01-49f8-bd2c-77b8876b04a8 to /Users/someone/Music/Long Name/T.mp3"
+    assert redact(line) == line
