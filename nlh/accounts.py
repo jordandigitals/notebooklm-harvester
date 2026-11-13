@@ -12,7 +12,7 @@ import threading
 from pathlib import Path
 
 from nlh import adapter, paths
-from nlh.adapter import ChromeProfile, SessionStatus
+from nlh.adapter import AdapterError, ChromeProfile, SessionStatus
 from nlh.ledger import Account, Ledger, now
 from nlh.log import get_logger
 
@@ -128,3 +128,32 @@ def set_output_dir(ledger: Ledger, acct: Account, folder: str) -> Path:
     path = path.resolve()
     ledger.update_account(acct.id, output_dir=str(path))
     return path
+
+
+def with_session(ledger: Ledger, acct: Account, fn):
+    """Run a library call; if the session is stale, renew it once and retry.
+
+    Accounts added from Chrome are renewed by re-reading Chrome (Chrome rotates its
+    Google cookies, so copies go stale within the hour). Others must sign in again.
+    Exactly one retry, never a loop (ARCH-RULES 6).
+    """
+    try:
+        result = fn()
+    except AdapterError as exc:
+        if exc.state != "needs_sign_in":
+            raise
+        if not acct.chrome_profile:
+            ledger.update_account(acct.id, last_status="needs_sign_in", last_checked=now())
+            raise
+        log.info("session for %s stale, re-reading Chrome %s once", acct.profile_name, acct.chrome_profile)
+        status = _signin(adapter.login_from_chrome, acct.profile_name, acct.chrome_profile, acct.email, False)
+        if not status.ok:
+            ledger.update_account(acct.id, last_status="needs_sign_in", last_checked=now())
+            raise AdapterError(status.message, "needs_sign_in") from None
+        try:
+            result = fn()
+        except AdapterError as again:
+            ledger.update_account(acct.id, last_status=again.state, last_checked=now())
+            raise
+    ledger.update_account(acct.id, last_status="ok", last_checked=now())
+    return result

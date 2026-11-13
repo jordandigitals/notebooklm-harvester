@@ -15,7 +15,7 @@ from pathlib import Path
 
 from nlh import paths
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS accounts (
@@ -44,6 +44,11 @@ CREATE TABLE IF NOT EXISTS harvests (
   saved_at       TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS harvests_account ON harvests(account_id);
+CREATE TABLE IF NOT EXISTS library_cache (
+  account_id     INTEGER PRIMARY KEY REFERENCES accounts(id),
+  data_json      TEXT NOT NULL,
+  listed_at      TEXT NOT NULL
+);
 """
 
 
@@ -213,3 +218,22 @@ class Ledger:
                 now(),
             ),
         )
+
+    # ------------------------------------------------------------ listing cache
+
+    def save_listing(self, account_id: int, data_json: str) -> None:
+        """Keep the last notebook listing (titles and ids only) for instant display."""
+        with self.transaction() as c:
+            c.execute(
+                "INSERT INTO library_cache (account_id, data_json, listed_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(account_id) DO UPDATE SET data_json = excluded.data_json, "
+                "listed_at = excluded.listed_at",
+                (account_id, data_json, now()),
+            )
+
+    def load_listing(self, account_id: int) -> tuple[str, str] | None:
+        """The cached listing JSON and when it was read, if any."""
+        r = self.conn.execute(
+            "SELECT data_json, listed_at FROM library_cache WHERE account_id = ?", (account_id,)
+        ).fetchone()
+        return (r["data_json"], r["listed_at"]) if r else None

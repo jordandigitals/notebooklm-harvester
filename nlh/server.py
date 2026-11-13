@@ -6,6 +6,7 @@ job at a time, so there is never more than one download or sign-in in flight.
 
 from __future__ import annotations
 
+import dataclasses
 import hmac
 import json
 import os
@@ -121,6 +122,7 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
     led = ledger or Ledger()
     worker = Worker()
     library: dict[int, list] = {}  # account id -> [(Notebook, [AudioOverview])]
+    cached_at: dict[int, str] = {}  # account id -> when a cached listing was read
 
     @app.before_request
     def guard():
@@ -284,13 +286,14 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
         acct = get_account(account_id)
 
         def run(job):
-            st = accounts.check(led, acct)
-            if not st.ok:
-                job.state, job.message = "failed", st.message
-                return
-            library[acct.id] = adapter.list_library(acct.profile_name, job.lines.append)
-            n = sum(len(o) for _nb, o in library[acct.id])
-            job.message = f"{len(library[acct.id])} notebooks, {n} audio overviews."
+            fresh = accounts.with_session(
+                led, acct, lambda: adapter.list_library(acct.profile_name, job.lines.append)
+            )
+            library[acct.id] = fresh
+            cached_at.pop(acct.id, None)
+            led.save_listing(acct.id, _dump_listing(fresh))
+            n = sum(len(o) for _nb, o in fresh)
+            job.message = f"{len(fresh)} notebooks, {n} audio overviews."
 
         return jsonify(worker.submit("refresh", f"Reading {acct.label}", run, acct.id).view())
 
@@ -298,7 +301,11 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
     def get_library(account_id):
         get_account(account_id)
         if account_id not in library:
-            return jsonify(loaded=False, notebooks=[])
+            saved = led.load_listing(account_id)
+            if not saved:
+                return jsonify(loaded=False, notebooks=[])
+            library[account_id] = _load_listing(saved[0])
+            cached_at[account_id] = saved[1]
         out = []
         for nb, ovs in library[account_id]:
             items = []
@@ -314,7 +321,7 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
                     }
                 )
             out.append({"id": nb.id, "title": nb.title, "created_at": nb.created_at, "overviews": items})
-        return jsonify(loaded=True, notebooks=out)
+        return jsonify(loaded=True, cached_at=cached_at.get(account_id), notebooks=out)
 
     @app.post("/api/accounts/<int:account_id>/harvest")
     def do_harvest(account_id):
@@ -353,12 +360,16 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
                 if not msg.startswith(("Downloading ", "Converting to MP3 ")):
                     job.lines.append(f"[{i + 1}/{n}] {ov.title}: {msg}")
 
+            def download(profile, ov, dest):
+                return accounts.with_session(led, acct, lambda: adapter.download_overview(profile, ov, dest))
+
             results = harvest.harvest_many(
                 led,
                 led.account(acct.id),
                 chosen,
                 Path(acct.output_dir),
                 redownload_ids=redo,
+                downloader=download,
                 on_item=on_item,
             )
             for r in results:
@@ -454,6 +465,21 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
     app.config["worker"] = worker
     app.config["library"] = library
     return app
+
+
+def _dump_listing(lib) -> str:
+    """Serialize a listing (titles and ids only, no secrets) for the cache."""
+    return json.dumps(
+        [{"nb": dataclasses.asdict(nb), "ovs": [dataclasses.asdict(o) for o in ovs]} for nb, ovs in lib]
+    )
+
+
+def _load_listing(text: str):
+    """Rebuild a cached listing into adapter types."""
+    return [
+        (adapter.Notebook(**row["nb"]), [adapter.AudioOverview(**o) for o in row["ovs"]])
+        for row in json.loads(text)
+    ]
 
 
 def _clear_stale_temp() -> None:
