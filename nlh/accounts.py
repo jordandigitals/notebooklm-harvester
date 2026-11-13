@@ -1,0 +1,130 @@
+"""Account management (R2): add, check, sign in again, label, output folder.
+
+Sessions live in the library profile folders under the app home. Only one sign-in
+runs at a time, and nothing retries in a loop (ARCH-RULES 6, 7).
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import threading
+from pathlib import Path
+
+from nlh import adapter, paths
+from nlh.adapter import ChromeProfile, SessionStatus
+from nlh.ledger import Account, Ledger, now
+from nlh.log import get_logger
+
+log = get_logger()
+
+SIGNIN_LOCK = threading.Lock()
+
+
+class AccountError(Exception):
+    """A plain-language problem with an account action."""
+
+
+def _profile_name(ledger: Ledger, email: str | None) -> str:
+    """Make a new, unused library profile name from an email (or a counter)."""
+    base = re.sub(r"[^a-z0-9]+", "-", (email or "").split("@")[0].lower()).strip("-") or "account"
+    name, n = f"acct-{base}", 2
+    while ledger.account_by_profile(name) or paths.profile_dir(name).exists():
+        name, n = f"acct-{base}-{n}", n + 1
+    return name
+
+
+def _signin(fn, *args) -> SessionStatus:
+    """Run one sign-in, refusing if another is already running."""
+    if not SIGNIN_LOCK.acquire(blocking=False):
+        raise AccountError("Another sign-in is already running. Finish it first.")
+    try:
+        return fn(*args)
+    finally:
+        SIGNIN_LOCK.release()
+
+
+def chrome_candidates(ledger: Ledger) -> list[tuple[ChromeProfile, bool]]:
+    """Chrome profiles on this machine, each with whether its email is already an account."""
+    known = {(a.email or "").lower() for a in ledger.accounts()}
+    return [(p, p.email.lower() in known) for p in adapter.list_chrome_profiles()]
+
+
+def add_from_chrome(ledger: Ledger, folder: str) -> tuple[Account, SessionStatus]:
+    """Add an account from a signed-in Chrome profile (reads its cookies once, locally)."""
+    match = [p for p in adapter.list_chrome_profiles() if p.folder == folder]
+    if not match:
+        raise AccountError("That Chrome profile was not found on this computer.")
+    prof = match[0]
+    existing = [a for a in ledger.accounts() if (a.email or "").lower() == prof.email.lower()]
+    if existing:
+        raise AccountError(f"{prof.email} is already added as '{existing[0].label}'.")
+    name = _profile_name(ledger, prof.email)
+    status = _signin(adapter.login_from_chrome, name, prof.folder, prof.email)
+    if not status.ok:
+        raise AccountError(status.message)
+    acct = ledger.add_account(name, prof.name, prof.email, prof.folder)
+    ledger.update_account(acct.id, last_status=status.state, last_checked=now())
+    log.info("account added from Chrome %s as %s", prof.folder, name)
+    return ledger.account(acct.id), status
+
+
+def add_interactive(ledger: Ledger, label: str | None = None) -> tuple[Account, SessionStatus]:
+    """Add an account through a fresh Google sign-in in Chrome."""
+    name = _profile_name(ledger, None)
+    status = _signin(adapter.login_interactive, name)
+    if not status.ok:
+        raise AccountError(status.message)
+    if status.email and any((a.email or "").lower() == status.email.lower() for a in ledger.accounts()):
+        raise AccountError(f"{status.email} is already added.")
+    acct = ledger.add_account(name, label or status.email or name, status.email, None)
+    ledger.update_account(acct.id, last_status=status.state, last_checked=now())
+    log.info("account added by sign-in as %s", name)
+    return ledger.account(acct.id), status
+
+
+def check(ledger: Ledger, acct: Account, *, reread_chrome: bool = True) -> SessionStatus:
+    """Check an account's session.
+
+    A session copied from Chrome goes stale when Chrome rotates its own cookies.
+    For such accounts one automatic re-read from Chrome is tried; never more.
+    """
+    status = adapter.check_session(acct.profile_name)
+    if not status.ok and status.state == "needs_sign_in" and acct.chrome_profile and reread_chrome:
+        log.info("session for %s stale, re-reading Chrome %s once", acct.profile_name, acct.chrome_profile)
+        try:
+            status = _signin(adapter.login_from_chrome, acct.profile_name, acct.chrome_profile, acct.email)
+        except AccountError as exc:
+            status = SessionStatus("needs_sign_in", str(exc))
+    ledger.update_account(acct.id, last_status=status.state, last_checked=now())
+    return status
+
+
+def sign_in_again(ledger: Ledger, acct: Account) -> SessionStatus:
+    """Renew a session: from Chrome if the account came from Chrome, else a fresh sign-in."""
+    if acct.chrome_profile:
+        status = _signin(adapter.login_from_chrome, acct.profile_name, acct.chrome_profile, acct.email)
+    else:
+        status = _signin(adapter.login_interactive, acct.profile_name)
+    ledger.update_account(acct.id, last_status=status.state, last_checked=now())
+    return status
+
+
+def set_label(ledger: Ledger, acct: Account, label: str) -> None:
+    """Rename an account in the app (local only)."""
+    label = label.strip()
+    if not label:
+        raise AccountError("The name cannot be empty.")
+    ledger.update_account(acct.id, label=label[:80])
+
+
+def set_output_dir(ledger: Ledger, acct: Account, folder: str) -> Path:
+    """Remember an account's output folder after checking it exists and is writable."""
+    path = Path(folder).expanduser()
+    if not path.is_dir():
+        raise AccountError("That folder does not exist.")
+    if not os.access(path, os.W_OK):
+        raise AccountError("The app cannot write to that folder.")
+    path = path.resolve()
+    ledger.update_account(acct.id, output_dir=str(path))
+    return path
