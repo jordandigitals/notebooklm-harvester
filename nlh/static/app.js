@@ -244,7 +244,8 @@ async function pollJob() {
   state.jobId = null;
   if (job.kind === "add" && job.account_id) state.selected = job.account_id;
   await loadState();
-  if (job.kind === "add") { show($("add-panel"), false); }
+  // Close the add panel only on success, so a failed add can be retried right away.
+  if (job.kind === "add" && job.state === "done") { show($("add-panel"), false); }
   await loadLibrary();
 }
 

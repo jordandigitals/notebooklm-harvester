@@ -32,7 +32,7 @@
     <ul id="account-list" class="account-list"></ul>
     <section id="add-panel" class="add-panel is-hidden" aria-label="Add an account">
       <h3>From a Chrome profile</h3>
-      <p class="hint">Uses a Google account already signed in to Chrome on this computer.</p>
+      <p class="hint">Uses a Google account already signed in to Chrome on this computer. On Windows, quit Chrome completely first (also its icon near the clock).</p>
       <ul id="chrome-list" class="chrome-list"></ul>
       <h3>Sign in to Google</h3>
       <p id="signin-hint" class="hint">Opens a Chrome window to sign in to any Google account.</p>
@@ -44,6 +44,14 @@
   </aside>
 
   <section id="view-harvest" class="panel main-panel" aria-label="Notebooks">
+    <!-- Job progress sits outside the account detail so a first sign-in can show its result. -->
+    <div id="job-box" class="job is-hidden" aria-live="polite">
+      <div class="job-head"><strong id="job-title"></strong><span id="job-state" class="pill"></span></div>
+      <div id="job-overall" class="bar is-hidden" role="progressbar" aria-label="Overall progress"><span class="bar-fill"></span></div>
+      <p id="job-message" class="job-message"></p>
+      <ul id="job-items" class="job-items"></ul>
+    </div>
+
     <div id="no-account" class="empty">Add an account to begin.</div>
     <div id="account-detail" class="is-hidden">
       <div class="detail-head">
@@ -70,13 +78,6 @@
         <button id="btn-refresh" class="btn" type="button">Refresh notebooks</button>
         <button id="btn-harvest-new" class="btn btn-primary" type="button">Harvest all new</button>
         <button id="btn-harvest-sel" class="btn" type="button">Harvest selected</button>
-      </div>
-
-      <div id="job-box" class="job is-hidden" aria-live="polite">
-        <div class="job-head"><strong id="job-title"></strong><span id="job-state" class="pill"></span></div>
-        <div id="job-overall" class="bar is-hidden" role="progressbar" aria-label="Overall progress"><span class="bar-fill"></span></div>
-        <p id="job-message" class="job-message"></p>
-        <ul id="job-items" class="job-items"></ul>
       </div>
 
       <div id="notebooks" class="notebooks"></div>
