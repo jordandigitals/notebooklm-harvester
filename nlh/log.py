@@ -8,22 +8,36 @@ from logging.handlers import RotatingFileHandler
 
 from nlh import paths
 
+_UUID = re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")
+
 _PATTERNS = [
     # Cookie names Google uses for sign-in, and any __Secure- or __Host- cookie.
     re.compile(r"__(?:Secure|Host)-[A-Za-z0-9_-]+"),
     re.compile(r"\b[A-Z0-9]*(?:SID|SIDTS|SIDCC)[A-Z0-9_-]*\b"),
     re.compile(r"\b(?:NID|AEC|OTZ|SOCS)\b"),
-    # Anything that looks like a key=value secret or a long opaque token.
+    # Anything that looks like a key=value secret.
     re.compile(r"(?i)(cookie|token|authorization|csrf|session)[\"']?\s*[:=]\s*[\"']?[^\s,;\"']+"),
-    re.compile(r"[A-Za-z0-9_\-./+=]{32,}"),
+    # Long opaque tokens (cookie values, base64). Path separators and dots are not part of
+    # the class, so file paths survive; UUIDs are protected separately.
+    re.compile(r"[A-Za-z0-9_\-+=]{32,}"),
 ]
 
 
 def redact(text: str) -> str:
-    """Remove cookie names, token-like strings and key=value secrets from text."""
+    """Remove cookie names, token-like strings and key=value secrets from text.
+
+    Notebook and artifact ids (UUIDs) are kept so the log stays useful.
+    """
+    kept: list[str] = []
+
+    def hold(m: re.Match) -> str:
+        kept.append(m.group(0))
+        return f"\x00{len(kept) - 1}\x00"
+
+    text = _UUID.sub(hold, text)
     for pattern in _PATTERNS:
         text = pattern.sub("[redacted]", text)
-    return text
+    return re.sub(r"\x00(\d+)\x00", lambda m: kept[int(m.group(1))], text)
 
 
 class RedactFilter(logging.Filter):
