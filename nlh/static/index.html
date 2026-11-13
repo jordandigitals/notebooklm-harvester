@@ -13,6 +13,7 @@
   <nav class="tabs" aria-label="Views">
     <button class="tab is-active" data-view="harvest" type="button">Harvest</button>
     <button class="tab" data-view="history" type="button">History</button>
+    <button id="quit" class="tab" type="button">Quit</button>
   </nav>
 </header>
 
@@ -34,8 +35,8 @@
       <p class="hint">Uses a Google account already signed in to Chrome on this computer.</p>
       <ul id="chrome-list" class="chrome-list"></ul>
       <h3>Sign in to Google</h3>
-      <p class="hint">Opens a Chrome window to sign in to any Google account.</p>
-      <div class="row">
+      <p id="signin-hint" class="hint">Opens a Chrome window to sign in to any Google account.</p>
+      <div id="signin-row" class="row">
         <input id="signin-label" class="input" type="text" placeholder="Name for this account (optional)">
         <button id="signin-add" class="btn" type="button">Sign in</button>
       </div>

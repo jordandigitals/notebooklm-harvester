@@ -10,7 +10,11 @@ from pathlib import Path
 def app_dir() -> Path:
     """Folder the app runs from: beside the packaged executable, or the source checkout."""
     if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
+        exe_dir = Path(sys.executable).resolve().parent
+        # Mac app bundle: <name>.app/Contents/MacOS/<exe>; the app "sits" where the .app is.
+        if exe_dir.name == "MacOS" and exe_dir.parent.name == "Contents":
+            return exe_dir.parent.parent.parent
+        return exe_dir
     return Path(__file__).resolve().parent.parent
 
 

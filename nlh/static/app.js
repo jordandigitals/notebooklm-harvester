@@ -76,6 +76,11 @@ async function loadState() {
     ? `Missing ${missing.join(" and ")}. Install it (see INSTALL.md), then restart the app.` : "";
   show($("tools-warning"), missing.length > 0);
   show($("portable-warning"), data.portable && !data.portable_ack);
+  if (!data.interactive) {
+    $("signin-hint").textContent =
+      "This copy adds accounts from Chrome only. Sign in to the account in Chrome first, then pick it above.";
+    show($("signin-row"), false);
+  }
   if (state.selected === null && state.accounts.length) state.selected = state.accounts[0].id;
   renderAccounts();
   renderDetail();
@@ -397,17 +402,30 @@ async function openFolder(path) {
   catch (e) { alert(e.message); }
 }
 
+/** Stop the app after asking; the page then explains how to start it again. */
+async function quitApp() {
+  if (!confirm("Quit the harvester? You can start it again from its icon.")) return;
+  try {
+    await api("/api/quit", { method: "POST" });
+    document.body.replaceChildren(el("main", "layout"));
+    const box = el("section", "panel");
+    box.append(el("h1", "brand", document.title), el("p", "", "The harvester has stopped. You can close this tab."));
+    document.body.firstChild.append(box);
+  } catch (e) { alert(e.message); }
+}
+
 // ------------------------------------------------------------ wiring
 
 function switchView(view) {
-  for (const t of document.querySelectorAll(".tab")) t.classList.toggle("is-active", t.dataset.view === view);
+  for (const t of document.querySelectorAll(".tab[data-view]")) t.classList.toggle("is-active", t.dataset.view === view);
   show($("view-harvest"), view === "harvest");
   show($("view-history"), view === "history");
   if (view === "history") loadHistory();
 }
 
 function wire() {
-  for (const t of document.querySelectorAll(".tab")) t.addEventListener("click", () => switchView(t.dataset.view));
+  for (const t of document.querySelectorAll(".tab[data-view]")) t.addEventListener("click", () => switchView(t.dataset.view));
+  $("quit").addEventListener("click", quitApp);
   $("add-toggle").addEventListener("click", toggleAdd);
   $("signin-add").addEventListener("click", () =>
     startJob(api("/api/accounts/signin", { method: "POST", body: { label: $("signin-label").value } }), true));
