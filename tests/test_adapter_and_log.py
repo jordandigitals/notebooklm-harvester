@@ -171,3 +171,55 @@ def test_cli_uses_windows_wrapper_only_on_windows(monkeypatch):
     monkeypatch.setattr(adapter.sys, "platform", "darwin")
     adapter._cli(["auth", "check"], 5)
     assert captured["cmd"][1:4] == ["-m", "notebooklm", "auth"]
+
+
+class _FakePage:
+    def __init__(self, url):
+        self.url = url
+        self.visited = []
+
+    def goto(self, url, **kw):
+        self.visited.append(url)
+        # Google's sign-in continues to its security check-up page instead of NotebookLM;
+        # only an explicit visit to NotebookLM lands there (as notebook.google.com).
+        self.url = (
+            "https://gds.google.com/web/chip"
+            if "accounts.google.com" in url
+            else "https://notebook.google.com/"
+        )
+
+
+class _FakeContext:
+    def __init__(self, page):
+        self.pages = [page]
+
+    def cookies(self, url):
+        return [{"name": "SID"}, {"name": "NID"}]  # names only, like the real call is used
+
+    def close(self):
+        pass
+
+
+def test_signin_window_takes_signed_in_window_to_notebooklm(home, monkeypatch):
+    """Signed in but stuck on another Google page: the app opens NotebookLM itself and succeeds."""
+    import sys
+    import types
+
+    page = _FakePage("about:blank")
+    ctx = _FakeContext(page)
+
+    class _PW:
+        def __enter__(self):
+            launcher = types.SimpleNamespace(launch_persistent_context=lambda **kw: ctx)
+            return types.SimpleNamespace(chromium=launcher)
+
+        def __exit__(self, *a):
+            return False
+
+    fake_sync_api = types.SimpleNamespace(sync_playwright=lambda: _PW())
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", fake_sync_api)
+    monkeypatch.setattr(adapter, "NUDGE_AFTER_S", 0)
+    monkeypatch.setattr(adapter.time, "sleep", lambda s: None)
+    assert adapter._google_signin_window("acct-x", 30) is True
+    assert page.visited[0] == adapter.GOOGLE_SIGNIN_URL
+    assert page.visited[-1] == adapter.NOTEBOOKLM_URL

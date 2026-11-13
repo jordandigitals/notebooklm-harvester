@@ -399,6 +399,9 @@ def login_from_chrome(
 GOOGLE_SIGNIN_URL = "https://accounts.google.com/ServiceLogin?continue=https%3A%2F%2Fnotebooklm.google.com%2F"
 # Google sets these only after a real sign-in. Only cookie NAMES are looked at, never values.
 SIGNED_IN_COOKIE_NAMES = frozenset({"SID", "__Secure-1PSID"})
+NOTEBOOKLM_URL = "https://notebooklm.google.com/"
+NUDGE_AFTER_S = 3  # grace after Google's sign-in cookie appears before taking the window to NotebookLM
+NUDGE_EVERY_S = 15
 
 
 def _google_signin_window(profile_name: str, timeout_s: int) -> bool:
@@ -409,8 +412,14 @@ def _google_signin_window(profile_name: str, timeout_s: int) -> bool:
     a fresh profile was saved with no Google sign-in at all (found in M4, 2026-11-13).
     This window uses the same browser profile folder the library uses for the account,
     so after it closes the library finds a real Google session and saves it.
+    Google sometimes stops after the sign-in on an extra page (security check-up, account
+    chooser) instead of continuing to NotebookLM. Once its sign-in cookie exists the
+    sign-in is done, so the window is taken to NotebookLM by the app itself.
     Returns True once signed in and on NotebookLM, False on timeout or a closed window.
+    Only the site name of the last page and whether Google had signed in are logged.
     """
+    from urllib.parse import urlparse
+
     # The library's own list of NotebookLM addresses: Google also serves it as
     # notebook.google.com ("Gemini Notebook"), so a fixed host check missed the landing.
     from notebooklm._auth.browser_capture import url_matches_base_host
@@ -428,21 +437,41 @@ def _google_signin_window(profile_name: str, timeout_s: int) -> bool:
             args=["--disable-blink-features=AutomationControlled", "--password-store=basic"],
             ignore_default_args=["--enable-automation"],
         )
+        last_site, signed_since, nudged_at = "", None, 0.0
         try:
             page = ctx.pages[0] if ctx.pages else ctx.new_page()
             page.goto(GOOGLE_SIGNIN_URL)
             while time.monotonic() < deadline:
                 pages = list(ctx.pages)  # one snapshot: tabs can close between reads
                 if not pages:
-                    return False  # the person closed the window
+                    log.info(
+                        "sign-in window closed (last site %s, signed in %s)", last_site, bool(signed_since)
+                    )
+                    return False
+                last_site = urlparse(pages[-1].url).hostname or ""
                 names = {c["name"] for c in ctx.cookies("https://accounts.google.com")}
-                on_notebooklm = any(url_matches_base_host(pg.url) for pg in pages)
-                if names & SIGNED_IN_COOKIE_NAMES and on_notebooklm:
-                    return True
+                if names & SIGNED_IN_COOKIE_NAMES:
+                    signed_since = signed_since or time.monotonic()
+                    if any(url_matches_base_host(pg.url) for pg in pages):
+                        return True
+                    now_s = time.monotonic()
+                    if now_s - signed_since >= NUDGE_AFTER_S and now_s - nudged_at >= NUDGE_EVERY_S:
+                        nudged_at = now_s
+                        log.info("signed in but stopped on %s; opening NotebookLM", last_site)
+                        try:
+                            pages[-1].goto(NOTEBOOKLM_URL, wait_until="domcontentloaded", timeout=30000)
+                        except Exception as exc:  # a slow page; the next round checks again
+                            log.info("opening NotebookLM: %s", type(exc).__name__)
                 time.sleep(1)
+            log.info("sign-in window timed out (last site %s, signed in %s)", last_site, bool(signed_since))
             return False
         except Exception as exc:  # window closed mid-wait, or Chrome could not start
-            log.info("sign-in window ended: %s", type(exc).__name__)
+            log.info(
+                "sign-in window ended: %s (last site %s, signed in %s)",
+                type(exc).__name__,
+                last_site,
+                bool(signed_since),
+            )
             return False
         finally:
             try:
