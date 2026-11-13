@@ -7,15 +7,35 @@ import sys
 from pathlib import Path
 
 
+def app_dir() -> Path:
+    """Folder the app runs from: beside the packaged executable, or the source checkout."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent
+
+
+def portable_home() -> Path | None:
+    """The portable app home (R13), only when a "portable" flag file AND a "data" folder sit
+    beside the app. Never enabled automatically."""
+    base = app_dir()
+    if (base / "portable").is_file() and (base / "data").is_dir():
+        return base / "data"
+    return None
+
+
 def app_home() -> Path:
     """Return the app home directory, creating it with owner-only permissions.
 
-    NLH_HOME overrides the default. Defaults: Windows %LOCALAPPDATA%\\NLH, others ~/.nlh.
-    The saved Google sessions live under it, so it must never sit inside the repo.
+    Order: NLH_HOME, then portable mode (R13), then the OS default
+    (Windows %LOCALAPPDATA%\\NLH, others ~/.nlh). The saved Google sessions live under
+    it, so it must never sit inside a git checkout.
     """
     override = os.environ.get("NLH_HOME")
+    portable = portable_home()
     if override:
         home = Path(override).expanduser()
+    elif portable:
+        home = portable
     elif sys.platform == "win32":
         base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
         home = Path(base) / "NLH"

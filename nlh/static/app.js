@@ -75,6 +75,7 @@ async function loadState() {
   $("tools-warning").textContent = missing.length
     ? `Missing ${missing.join(" and ")}. Install it (see INSTALL.md), then restart the app.` : "";
   show($("tools-warning"), missing.length > 0);
+  show($("portable-warning"), data.portable && !data.portable_ack);
   if (state.selected === null && state.accounts.length) state.selected = state.accounts[0].id;
   renderAccounts();
   renderDetail();
@@ -118,7 +119,8 @@ function renderDetail() {
   show($("btn-signin"), a.status !== "ok");
   $("out-dir").textContent = a.output_dir || "No folder chosen";
   show($("btn-open-out"), !!a.output_dir);
-  for (const id of ["btn-check", "btn-signin", "btn-refresh", "btn-harvest-new", "btn-harvest-sel", "btn-choose"]) {
+  show($("btn-scan"), !!a.output_dir);
+  for (const id of ["btn-check", "btn-signin", "btn-refresh", "btn-harvest-new", "btn-harvest-sel", "btn-choose", "btn-scan"]) {
     $(id).disabled = busy();
   }
   $("btn-harvest-new").disabled = busy() || !a.output_dir || !state.library;
@@ -421,6 +423,8 @@ function wire() {
     startJob(api(`/api/accounts/${state.selected}/harvest`, { method: "POST", body: ids }));
   });
   $("btn-choose").addEventListener("click", openPicker);
+  $("portable-ok").addEventListener("click", async () => { await api("/api/portable-ack", { method: "POST" }); show($("portable-warning"), false); });
+  $("btn-scan").addEventListener("click", () => startJob(api(`/api/accounts/${state.selected}/scan`, { method: "POST" })));
   $("btn-open-out").addEventListener("click", () => openFolder(current().output_dir));
   $("picker-go").addEventListener("click", () => browse($("picker-path").value));
   $("picker-path").addEventListener("keydown", (e) => { if (e.key === "Enter") browse($("picker-path").value); });

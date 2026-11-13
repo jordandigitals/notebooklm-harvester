@@ -188,13 +188,22 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
     @app.get("/api/state")
     def state():
         current = [worker.jobs[j].view() for j in worker.order[-20:]]
+        portable = paths.portable_home() is not None and not os.environ.get("NLH_HOME")
         return jsonify(
+            portable=portable,
+            portable_ack=(paths.app_home() / ".portable-ack").exists(),
             app_name=APP_NAME,
             version=__version__,
             tools=media.tools_available(),
             accounts=[account_view(a) for a in led.accounts()],
             jobs=current,
         )
+
+    @app.post("/api/portable-ack")
+    def portable_ack():
+        """Remember that the user read the portable-mode warning."""
+        (paths.app_home() / ".portable-ack").write_text("read\n", encoding="utf-8")
+        return jsonify(ok=True)
 
     @app.get("/api/jobs/<job_id>")
     def job(job_id):
@@ -383,6 +392,32 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
 
         title = f"Harvesting {len(chosen)} for {acct.label}"
         return jsonify(worker.submit("harvest", title, run, acct.id).view())
+
+    @app.post("/api/accounts/<int:account_id>/scan")
+    def scan(account_id):
+        acct = get_account(account_id)
+        if not acct.output_dir or not Path(acct.output_dir).is_dir():
+            return jsonify(error="Choose an output folder first."), 400
+
+        def run(job):
+            if account_id not in library:
+                saved = led.load_listing(account_id)
+                if saved:
+                    library[account_id] = _load_listing(saved[0])
+                else:
+                    job.lines.append("Reading notebooks first")
+                    library[account_id] = accounts.with_session(
+                        led, acct, lambda: adapter.list_library(acct.profile_name, job.lines.append)
+                    )
+                    led.save_listing(account_id, _dump_listing(library[account_id]))
+            known = {ov.artifact_id: ov for _nb, ovs in library[account_id] for ov in ovs}
+            r = harvest.scan_folder(led, acct, Path(acct.output_dir), known, job.lines.append)
+            job.message = (
+                f"Found {r.added} new and {r.relinked} moved files from this account; "
+                f"{r.already} already known; {r.ignored} other files left alone."
+            )
+
+        return jsonify(worker.submit("scan", f"Scanning folder for {acct.label}", run, acct.id).view())
 
     # ------------------------------------------------------------ history and folders
 

@@ -17,6 +17,10 @@
 </header>
 
 <div id="tools-warning" class="banner is-hidden" role="alert"></div>
+<div id="portable-warning" class="banner banner-warn is-hidden" role="alert">
+  <p><strong>Portable mode.</strong> This copy keeps its data, including your Google sign-ins, in the "data" folder beside the app. Do not keep it on a shared drive or a drive you might lose, and do not hand that folder to anyone.</p>
+  <button id="portable-ok" class="btn btn-small" type="button">I understand</button>
+</div>
 
 <main class="layout">
   <aside class="panel accounts-panel" aria-label="Accounts">
@@ -58,6 +62,7 @@
         <code id="out-dir" class="folder-path">No folder chosen</code>
         <button id="btn-choose" class="btn btn-quiet" type="button">Choose folder</button>
         <button id="btn-open-out" class="btn btn-quiet is-hidden" type="button">Open folder</button>
+        <button id="btn-scan" class="btn btn-quiet is-hidden" type="button" title="Find MP3s this app saved before (for example on another computer)">Scan folder</button>
       </div>
 
       <div class="actions harvest-actions">

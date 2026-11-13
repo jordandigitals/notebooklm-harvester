@@ -209,3 +209,5 @@ h3 { font-size: 0.95rem; margin-top: 14px; }
 .label-edit .input { flex: none; }
 .account > span:first-child { flex: 1 1 auto; min-width: 0; }
 .account-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; overflow-wrap: normal; }
+.banner-warn { background: var(--soft-warn); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+.banner-warn p { margin: 0; flex: 1 1 260px; }
