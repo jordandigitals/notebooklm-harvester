@@ -1,10 +1,11 @@
 """Harvest write paths: file on disk, ledger row, idempotency, failure cleanup (R4, R5)."""
 
+import os
 import shutil
 
 from conftest import needs_ffmpeg
 
-from nlh import harvest, media
+from nlh import harvest, media, naming
 from nlh.adapter import AdapterError, AudioOverview
 
 
@@ -156,3 +157,40 @@ def test_saved_into_notebook_subfolder(ledger, tmp_path, sample_m4a):
     assert r.outcome == "saved"
     assert (out / "Notes2026 Plans" / "Episode One.mp3").exists()
     assert [p.name for p in out.iterdir()] == ["Notes2026 Plans"]
+
+
+def _deep_out(tmp_path, total):
+    base = tmp_path.resolve()
+    out = base / ("d" * (total - len(str(base)) - 1))
+    out.mkdir()
+    return out
+
+
+@needs_ffmpeg
+def test_windows_deep_folder_long_titles_save_under_240(ledger, tmp_path, sample_m4a, monkeypatch):
+    """D-023: the file saves, its path is under 240, and the ledger row matches the file."""
+    monkeypatch.setattr(naming.sys, "platform", "win32")
+    acct = ledger.add_account("p1", "L")
+    out = _deep_out(tmp_path, 100)
+    ov = AudioOverview("art-long", "O" * 185, "nb-1", "N" * 126, "2026-11-12T09:00:00+00:00", "completed")
+    r = harvest.harvest_one(ledger, acct, ov, out, downloader=FakeDownloader(sample_m4a))
+    assert r.outcome == "saved", r.message
+    f = os.path.abspath(r.saved_path)
+    assert len(f) < naming.WIN_MAX_PATH and os.path.exists(f)
+    row = ledger.harvest("art-long")
+    assert row.saved_path == r.saved_path and row.size_bytes == os.path.getsize(f)
+    assert row.sha256 == media.sha256(r.saved_path)
+    assert media.probe(r.saved_path).tags["title"] == "O" * 185  # tags keep the full title
+    assert not list(out.rglob("*.part"))
+
+
+def test_windows_too_deep_folder_refused_cleanly(ledger, tmp_path, monkeypatch):
+    """D-023: plain message, no download, no folder, no partial file, no ledger row."""
+    monkeypatch.setattr(naming.sys, "platform", "win32")
+    acct = ledger.add_account("p1", "L")
+    out = _deep_out(tmp_path, 200)
+    calls = []
+    r = harvest.harvest_one(ledger, acct, _ov(), out, downloader=lambda *a: calls.append(a))
+    assert r.outcome == "failed" and r.message == naming.TOO_LONG_MESSAGE
+    assert calls == [] and list(out.iterdir()) == []
+    assert ledger.harvest("art-1") is None

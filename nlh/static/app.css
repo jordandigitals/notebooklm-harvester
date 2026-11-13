@@ -103,6 +103,7 @@ h3 { font-size: 0.95rem; margin-top: 14px; }
 
 .hint, .muted { color: var(--muted); font-size: 0.85rem; }
 .hint { margin: 4px 0 8px; }
+.hint-warn { color: var(--ink); background: var(--soft-warn); border-radius: 6px; padding: 6px 8px; }
 .error { color: var(--bad); min-height: 1.2em; margin: 6px 0 0; }
 .empty { color: var(--muted); padding: 24px 0; text-align: center; }
 

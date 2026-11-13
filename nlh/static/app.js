@@ -76,6 +76,7 @@ async function loadState() {
     ? `Missing ${missing.join(" and ")}. Install it (see INSTALL.md), then restart the app.` : "";
   show($("tools-warning"), missing.length > 0);
   show($("portable-warning"), data.portable && !data.portable_ack);
+  if (data.windows) windowsAddPanel(data.interactive);
   if (!data.interactive) {
     $("signin-hint").textContent =
       "This copy adds accounts from Chrome only. Sign in to the account in Chrome first, then pick it above.";
@@ -84,6 +85,23 @@ async function loadState() {
   if (state.selected === null && state.accounts.length) state.selected = state.accounts[0].id;
   renderAccounts();
   renderDetail();
+}
+
+// On Windows the fresh sign-in comes first and is recommended (D-022): it needs no Chrome
+// lock and trips no Windows Security alert. The Chrome route follows, for a quick start.
+function windowsAddPanel(interactive) {
+  if (interactive) {
+    $("add-panel").insertBefore($("add-signin"), $("add-chrome"));
+    $("signin-head").textContent = "Sign in to Google (recommended)";
+    $("signin-hint").textContent =
+      "Opens a blank Chrome window that looks like a guest profile. That is expected: it is the harvester's own private window, separate from your Chrome. Sign in there once and it remembers you; your normal Chrome stays open and untouched.";
+  }
+  $("chrome-head").textContent = "Use a Chrome profile (quick start)";
+  $("chrome-hint").textContent =
+    "Copies the Google sign-in from your Chrome. Quit Chrome completely first (also its icon near the clock). " +
+    "Windows Security may report the reader as \"Trojan InfoStealer\" because it reads Chrome's saved sign-in; " +
+    "it only reads the Google sign-in cookies it needs, on this computer. To allow it: Windows Security, " +
+    "Virus and threat protection, Protection history, select the entry, Actions, Allow on device.";
 }
 
 function renderAccounts() {
@@ -123,6 +141,7 @@ function renderDetail() {
   st.textContent = STATUS_TEXT[a.status] || a.status;
   show($("btn-signin"), a.status !== "ok");
   $("out-dir").textContent = a.output_dir || "No folder chosen";
+  show($("out-warning"), !!a.long_folder);
   show($("btn-open-out"), !!a.output_dir);
   show($("btn-scan"), !!a.output_dir);
   for (const id of ["btn-check", "btn-signin", "btn-refresh", "btn-harvest-new", "btn-harvest-sel", "btn-choose", "btn-scan"]) {

@@ -35,6 +35,8 @@ def fake(monkeypatch, home):
         s = state["check"].pop(0) if len(state["check"]) > 1 else state["check"][0]
         return SessionStatus(s, s)
 
+    # Default: no own sign-in window, so these tests exercise the Chrome route on every OS.
+    monkeypatch.setattr(adapter, "interactive_available", lambda: False)
     monkeypatch.setattr(adapter, "list_chrome_profiles", lambda *a: PROFILES)
     monkeypatch.setattr(adapter, "login_from_chrome", login_from_chrome)
     monkeypatch.setattr(adapter, "login_interactive", login_interactive)
@@ -169,3 +171,68 @@ def test_with_session_signin_account_not_renewed(ledger, fake):
 def test_stale_csrf_error_maps_to_sign_in():
     err = adapter._map_error(ValueError("CSRF token not found in HTML. Final URL: x"))
     assert err.state == "needs_sign_in"
+
+
+def test_windows_sign_in_again_moves_chrome_account_to_own_signin(ledger, fake, monkeypatch):
+    """D-022: on Windows, Sign in again on a Chrome account opens the own window, not Chrome."""
+    import sys
+
+    acct, _ = accounts.add_from_chrome(ledger, "Profile 2")
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(adapter, "interactive_available", lambda: True)
+    monkeypatch.setattr(
+        adapter,
+        "login_interactive",
+        lambda name, timeout_s=300: SessionStatus("ok", "Signed in.", "j@example.com"),
+    )
+    before = fake["chrome_logins"]
+    st = accounts.sign_in_again(ledger, ledger.account(acct.id))
+    assert st.ok and fake["chrome_logins"] == before
+    after = ledger.account(acct.id)
+    assert after.chrome_profile is None and after.last_status == "ok"
+    assert after.profile_name == acct.profile_name  # same account, same saved files
+
+
+def test_own_signin_with_wrong_google_account_is_refused(ledger, fake, monkeypatch):
+    import sys
+
+    acct, _ = accounts.add_from_chrome(ledger, "Profile 2")
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(adapter, "interactive_available", lambda: True)
+    monkeypatch.setattr(
+        adapter,
+        "login_interactive",
+        lambda name, timeout_s=300: SessionStatus("ok", "Signed in.", "x@example.com"),
+    )
+    st = accounts.sign_in_again(ledger, ledger.account(acct.id))
+    assert not st.ok and "x@example.com" in st.message
+    assert ledger.account(acct.id).chrome_profile == "Profile 2"
+
+
+def test_mac_sign_in_again_still_rereads_chrome(ledger, fake, monkeypatch):
+    import sys
+
+    acct, _ = accounts.add_from_chrome(ledger, "Profile 2")
+    monkeypatch.setattr(sys, "platform", "darwin")
+    before = fake["chrome_logins"]
+    assert accounts.sign_in_again(ledger, ledger.account(acct.id)).ok
+    assert fake["chrome_logins"] == before + 1
+    assert ledger.account(acct.id).chrome_profile == "Profile 2"
+
+
+def test_windows_stale_chrome_account_skips_automatic_chrome_reread(ledger, fake, monkeypatch):
+    """On Windows a stale Chrome account goes straight to Sign in again (no locked re-read)."""
+    import sys
+
+    acct, _ = accounts.add_from_chrome(ledger, "Profile 2")
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(adapter, "interactive_available", lambda: True)
+    before = fake["chrome_logins"]
+
+    def stale():
+        raise adapter.AdapterError("Sign in again.", "needs_sign_in")
+
+    with pytest.raises(adapter.AdapterError):
+        accounts.with_session(ledger, ledger.account(acct.id), stale)
+    assert fake["chrome_logins"] == before
+    assert ledger.account(acct.id).last_status == "needs_sign_in"

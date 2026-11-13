@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import threading
 from pathlib import Path
 
@@ -90,7 +91,7 @@ def check(ledger: Ledger, acct: Account, *, reread_chrome: bool = True) -> Sessi
     For such accounts one automatic re-read from Chrome is tried; never more.
     """
     status = adapter.check_session(acct.profile_name)
-    if not status.ok and status.state == "needs_sign_in" and acct.chrome_profile and reread_chrome:
+    if not status.ok and status.state == "needs_sign_in" and not uses_own_signin(acct) and reread_chrome:
         log.info("session for %s stale, re-reading Chrome %s once", acct.profile_name, acct.chrome_profile)
         try:
             status = _signin(adapter.login_from_chrome, acct.profile_name, acct.chrome_profile, acct.email)
@@ -100,13 +101,37 @@ def check(ledger: Ledger, acct: Account, *, reread_chrome: bool = True) -> Sessi
     return status
 
 
+def uses_own_signin(acct: Account) -> bool:
+    """True when Sign in again opens the app's own Chrome window for this account.
+
+    Always for accounts signed in directly. On Windows also for accounts copied from
+    Chrome (D-022): re-reading Chrome there needs Chrome fully closed every time, and the
+    copy goes stale while Chrome runs, so the account moves to its own sign-in instead.
+    """
+    if not acct.chrome_profile:
+        return True
+    return sys.platform == "win32" and adapter.interactive_available()
+
+
 def sign_in_again(ledger: Ledger, acct: Account) -> SessionStatus:
-    """Renew a session: from Chrome if the account came from Chrome, else a fresh sign-in."""
-    if acct.chrome_profile:
+    """Renew a session: own sign-in window (see uses_own_signin), else re-read Chrome."""
+    if not uses_own_signin(acct):
         status = _signin(adapter.login_from_chrome, acct.profile_name, acct.chrome_profile, acct.email)
-    else:
-        status = _signin(adapter.login_interactive, acct.profile_name)
-    ledger.update_account(acct.id, last_status=status.state, last_checked=now())
+        ledger.update_account(acct.id, last_status=status.state, last_checked=now())
+        return status
+    status = _signin(adapter.login_interactive, acct.profile_name)
+    if status.ok and acct.email and status.email and status.email.lower() != acct.email.lower():
+        ledger.update_account(acct.id, last_status="needs_sign_in", last_checked=now())
+        return SessionStatus(
+            "needs_sign_in",
+            f"That window was signed in as {status.email}, not {acct.email}. Press Sign in again "
+            f"and choose {acct.email}.",
+        )
+    fields = {"last_status": status.state, "last_checked": now()}
+    if status.ok and acct.chrome_profile:
+        fields["chrome_profile"] = None  # now signed in on its own; no longer tied to Chrome
+        log.info("account %s moved from Chrome %s to its own sign-in", acct.profile_name, acct.chrome_profile)
+    ledger.update_account(acct.id, **fields)
     return status
 
 
@@ -142,7 +167,7 @@ def with_session(ledger: Ledger, acct: Account, fn):
     except AdapterError as exc:
         if exc.state != "needs_sign_in":
             raise
-        if not acct.chrome_profile:
+        if uses_own_signin(acct):  # no automatic Chrome re-read (Windows, D-022)
             ledger.update_account(acct.id, last_status="needs_sign_in", last_checked=now())
             raise
         log.info("session for %s stale, re-reading Chrome %s once", acct.profile_name, acct.chrome_profile)
