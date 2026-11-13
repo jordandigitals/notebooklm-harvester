@@ -6,7 +6,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from nlh import adapter, harvest, media, paths
+from nlh import accounts, adapter, harvest, media, paths
 from nlh.ledger import Ledger
 
 
@@ -36,8 +36,7 @@ def cmd_accounts(ledger: Ledger, a) -> int:
     for acct in ledger.accounts():
         line = f"{acct.profile_name}  label={acct.label}  out={acct.output_dir or '-'}"
         if a.check:
-            st = adapter.check_session(acct.profile_name)
-            ledger.update_account(acct.id, last_status=st.state, last_checked=_now())
+            st = accounts.check(ledger, acct)
             line += f"  status={st.state}"
         print(line)
     return 0
@@ -47,6 +46,44 @@ def _now() -> str:
     from nlh.ledger import now
 
     return now()
+
+
+def cmd_chrome(ledger: Ledger, a) -> int:
+    """List Chrome profiles with a signed-in account (names and emails only)."""
+    for prof, added in accounts.chrome_candidates(ledger):
+        print(f"{prof.folder:<12} {prof.name:<16} {prof.email}{'  (added)' if added else ''}")
+    return 0
+
+
+def cmd_add_chrome(ledger: Ledger, a) -> int:
+    """Add an account from a Chrome profile folder name, for example "Profile 2"."""
+    try:
+        acct, st = accounts.add_from_chrome(ledger, a.folder)
+    except accounts.AccountError as exc:
+        sys.exit(str(exc))
+    print(f"Added '{acct.label}' as {acct.profile_name}: {st.state}")
+    return 0
+
+
+def cmd_add_signin(ledger: Ledger, a) -> int:
+    """Add an account through a fresh Google sign-in in Chrome."""
+    try:
+        acct, st = accounts.add_interactive(ledger, a.label)
+    except accounts.AccountError as exc:
+        sys.exit(str(exc))
+    print(f"Added '{acct.label}' as {acct.profile_name}: {st.state}")
+    return 0
+
+
+def cmd_signin(ledger: Ledger, a) -> int:
+    """Sign an account in again (Chrome re-read or fresh sign-in)."""
+    acct = _account(ledger, a.account)
+    try:
+        st = accounts.sign_in_again(ledger, acct)
+    except accounts.AccountError as exc:
+        sys.exit(str(exc))
+    print(f"{acct.profile_name}: {st.state} ({st.message})")
+    return 0 if st.ok else 1
 
 
 def cmd_list(ledger: Ledger, a) -> int:
@@ -124,6 +161,13 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--out")
     s.add_argument("--artifact", action="append", help="artifact id or prefix (repeatable)")
     sub.add_parser("ledger")
+    sub.add_parser("chrome", help="list Chrome profiles on this computer")
+    s = sub.add_parser("add-chrome", help="add an account from a Chrome profile")
+    s.add_argument("folder")
+    s = sub.add_parser("add-signin", help="add an account by signing in to Google")
+    s.add_argument("--label")
+    s = sub.add_parser("signin", help="sign an account in again")
+    s.add_argument("--account", required=True)
     sub.add_parser("serve", help="start the local web page")
     a = p.parse_args(argv)
 
@@ -142,6 +186,10 @@ def main(argv: list[str] | None = None) -> int:
             "list": cmd_list,
             "harvest": cmd_harvest,
             "ledger": cmd_ledger,
+            "chrome": cmd_chrome,
+            "add-chrome": cmd_add_chrome,
+            "signin": cmd_signin,
+            "add-signin": cmd_add_signin,
         }[a.cmd](ledger, a)
     finally:
         ledger.close()
