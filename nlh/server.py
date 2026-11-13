@@ -167,6 +167,9 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
             "email": a.email,
             "chrome_profile": a.chrome_profile,
             "output_dir": a.output_dir,
+            # D-023: warn on Windows when the output folder itself is long.
+            "long_folder": sys.platform == "win32"
+            and len(a.output_dir or "") > naming.LONG_FOLDER_WARNING_CHARS,
             "status": a.last_status or "unknown",
             "last_checked": a.last_checked,
             "saved_count": len(saved),
@@ -191,6 +194,7 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
         portable = paths.portable_home() is not None and not os.environ.get("NLH_HOME")
         return jsonify(
             interactive=adapter.interactive_available(),
+            windows=sys.platform == "win32",
             portable=portable,
             portable_ack=(paths.app_home() / ".portable-ack").exists(),
             app_name=APP_NAME,
@@ -274,7 +278,7 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
         acct = get_account(account_id)
 
         def run(job):
-            if not acct.chrome_profile:
+            if accounts.uses_own_signin(acct):
                 job.lines.append("A Chrome window is opening. Sign in to Google there.")
             st = accounts.sign_in_again(led, acct)
             job.message = st.message

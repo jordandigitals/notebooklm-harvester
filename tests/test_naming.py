@@ -1,6 +1,11 @@
 """Naming per D-013."""
 
-from nlh.naming import safe_stem, unique_path
+import os
+
+import pytest
+
+from nlh import naming
+from nlh.naming import notebook_folder, safe_stem, unique_path
 
 
 def test_illegal_characters_removed():
@@ -33,3 +38,64 @@ def test_pending_part_counts_as_taken(tmp_path):
     (tmp_path / "Title.mp3.part").write_bytes(b"x")
     (tmp_path / "Title (2).mp3").write_bytes(b"x")
     assert unique_path(tmp_path, "Title").name == "Title (3).mp3"
+
+
+def _deep(tmp_path, total):
+    """An existing output folder whose absolute path is exactly total characters long."""
+    base = str(tmp_path.resolve())
+    out = tmp_path.resolve() / ("d" * (total - len(base) - 1))
+    out.mkdir()
+    assert len(str(out)) == total
+    return out
+
+
+def test_windows_cap_keeps_full_path_under_240(tmp_path, monkeypatch):
+    """D-023: deep folder + long notebook + long overview title stays under 240 on Windows."""
+    monkeypatch.setattr(naming.sys, "platform", "win32")
+    out = _deep(tmp_path, 100)
+    folder = notebook_folder(out, "N" * 126)
+    assert len(folder.name) == naming.MAX_FOLDER
+    path = unique_path(folder, "Overview " + "O" * 176)
+    assert len(os.path.abspath(path)) + naming.SUFFIX_ROOM < naming.WIN_MAX_PATH
+    assert len(path.stem) >= naming.WIN_MIN_STEM and path.suffix == ".mp3"
+    assert path.stem.startswith("Overview O")
+
+
+def test_windows_cap_trims_trailing_dots_and_spaces(tmp_path, monkeypatch):
+    monkeypatch.setattr(naming.sys, "platform", "win32")
+    out = _deep(tmp_path, 100)
+    folder = notebook_folder(out, "N" * 80)
+    room = naming.stem_room(folder)
+    title = "A" * (room - 2) + " . " + "B" * 50  # the cut lands on " ."
+    stem = unique_path(folder, title).stem
+    assert not stem.endswith((" ", ".")) and stem
+
+
+def test_windows_too_deep_folder_refused_without_writing(tmp_path, monkeypatch):
+    monkeypatch.setattr(naming.sys, "platform", "win32")
+    out = _deep(tmp_path, 200)
+    with pytest.raises(naming.PathTooLong) as err:
+        notebook_folder(out, "N" * 80)
+    assert err.value.message == naming.TOO_LONG_MESSAGE
+    assert list(out.iterdir()) == []  # the notebook subfolder was not created
+
+
+def test_windows_cap_clash_suffix_still_works(tmp_path, monkeypatch):
+    monkeypatch.setattr(naming.sys, "platform", "win32")
+    out = _deep(tmp_path, 100)
+    folder = notebook_folder(out, "N" * 80)
+    first = unique_path(folder, "T" * 200)
+    first.write_bytes(b"x")
+    second = unique_path(folder, "t" * 200)  # case-only clash
+    assert second.stem == first.stem.lower() + " (2)" or second.stem == first.stem + " (2)"
+    assert second.name.lower() != first.name.lower()
+    assert len(os.path.abspath(second)) < naming.WIN_MAX_PATH
+
+
+@pytest.mark.parametrize("platform", ["darwin", "linux"])
+def test_mac_and_linux_names_unchanged(tmp_path, monkeypatch, platform):
+    """No cap off Windows: the overview stem keeps its full 150 characters."""
+    monkeypatch.setattr(naming.sys, "platform", platform)
+    out = _deep(tmp_path, 200)
+    folder = notebook_folder(out, "N" * 126)
+    assert unique_path(folder, "O" * 185).stem == "O" * naming.MAX_STEM

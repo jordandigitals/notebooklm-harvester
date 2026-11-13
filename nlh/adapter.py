@@ -411,8 +411,9 @@ def _google_signin_window(profile_name: str, timeout_s: int) -> bool:
     so after it closes the library finds a real Google session and saves it.
     Returns True once signed in and on NotebookLM, False on timeout or a closed window.
     """
-    from urllib.parse import urlparse
-
+    # The library's own list of NotebookLM addresses: Google also serves it as
+    # notebook.google.com ("Gemini Notebook"), so a fixed host check missed the landing.
+    from notebooklm._auth.browser_capture import url_matches_base_host
     from playwright.sync_api import sync_playwright
 
     browser_profile = paths.profile_dir(profile_name) / "browser_profile"
@@ -435,8 +436,7 @@ def _google_signin_window(profile_name: str, timeout_s: int) -> bool:
                 if not pages:
                     return False  # the person closed the window
                 names = {c["name"] for c in ctx.cookies("https://accounts.google.com")}
-                hosts = {urlparse(pg.url).hostname or "" for pg in pages}
-                on_notebooklm = any(h.endswith("notebooklm.google.com") for h in hosts)
+                on_notebooklm = any(url_matches_base_host(pg.url) for pg in pages)
                 if names & SIGNED_IN_COOKIE_NAMES and on_notebooklm:
                     return True
                 time.sleep(1)

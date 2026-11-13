@@ -94,6 +94,10 @@ def harvest_one(
     out_dir = Path(out_dir)
     if not out_dir.is_dir():
         return ItemResult(ov.artifact_id, ov.title, "failed", "The output folder does not exist.")
+    try:
+        naming.check_fits(out_dir, ov.notebook_title)  # Windows path cap (D-023), before any download
+    except naming.PathTooLong as exc:
+        return ItemResult(ov.artifact_id, ov.title, "failed", exc.message)
 
     work = Path(tempfile.mkdtemp(prefix="item-", dir=paths.temp_dir()))
     part: Path | None = None
@@ -175,6 +179,8 @@ def harvest_one(
         if placed and final is not None and final.exists():
             final.unlink()  # created this run and not recorded; never a prior saved file
         return ItemResult(ov.artifact_id, ov.title, "failed", "Could not record the save.")
+    except naming.PathTooLong as exc:
+        return ItemResult(ov.artifact_id, ov.title, "failed", exc.message)
     except FileExistsError:
         return ItemResult(
             ov.artifact_id, ov.title, "failed", "A file with that name appeared; nothing was changed."

@@ -9,7 +9,7 @@ folder you choose. It only reads from NotebookLM; it never changes anything ther
 | | Download | First start |
 |---|---|---|
 | Mac (Intel, also runs on Apple Silicon through Rosetta) | `NotebookLM-Harvester-mac-x86_64-<version>.zip` | Unzip, drag the app to Applications, right-click it and choose Open, then Open again. If macOS still refuses: System Settings, Privacy and Security, Open Anyway. |
-| Windows | `NotebookLM-Harvester-windows-<version>.zip` | Unzip, double-click `NotebookLM Harvester.exe`. If SmartScreen warns: More info, then Run anyway. |
+| Windows (64-bit) | `NotebookLM-Harvester-win-x64-<version>.zip` | Unzip to a short path (for example `C:\NLH`), open the `NotebookLM Harvester` folder, double-click `NotebookLM Harvester.exe`. If SmartScreen warns: More info, then Run anyway. |
 
 The apps are not signed (signing is deferred), which is why the system asks once.
 On a Mac, the first time the app reads a Chrome sign-in, macOS asks to let it use "Chrome
@@ -18,6 +18,8 @@ Safe Storage" from the keychain: enter your Mac password and choose Always Allow
 The ready-made Mac app adds accounts from Chrome profiles only (the Sign in to Google
 window needs an extra 157 MB component that is left out). To add an account that is not
 in Chrome yet, sign in to it in Chrome first, then add it from the list.
+The ready-made Windows app includes the Sign in to Google window, because on Windows the
+Chrome route needs Chrome fully closed and can trip Windows Security (see Windows notes).
 
 To stop the app, press Quit on the page. Starting it again opens the same page.
 
@@ -71,7 +73,7 @@ The page address contains a one-time key, so only you can use it. Each start mak
 
 ## Use it
 
-1. **Add account.** Pick a Chrome profile that is signed in to the Google account with your notebooks, or choose Sign in to sign in to any Google account in a Chrome window.
+1. **Add account.** Pick a Chrome profile that is signed in to the Google account with your notebooks, or choose Sign in to sign in to any Google account in a Chrome window. On Windows, Sign in is listed first and recommended (see Windows notes).
 2. **Choose folder.** Pick where the MP3 files go. Any folder works, including one synced by Google Drive, MEGA or OneDrive. Each account remembers its own folder.
 3. **Refresh notebooks.** The app reads your notebooks and shows each audio overview as New, Saved, Saved but file missing, or Not finished.
 4. **Harvest all new**, or tick some overviews and choose **Harvest selected**.
@@ -92,9 +94,10 @@ On Windows the folder is inside your user profile, which Windows already limits 
 
 ## Windows notes
 
+- **Two ways to add an account; Sign in to Google is recommended on Windows.** It opens a separate Chrome window kept just for this app (it looks like a blank guest window; that is expected); you sign in once and the app remembers it, your normal Chrome stays open and untouched, nothing reads Chrome's saved data, and Windows Security raises no alert. Use a Chrome profile is the quick start for an account already signed in to Chrome, with the two catches below.
 - **Quit Chrome before adding an account from a Chrome profile.** Windows keeps Chrome's sign-in data locked while Chrome runs, including in the background. Close every Chrome window, then right-click the Chrome icon near the clock (if shown) and choose Exit. Open this page in another browser, such as Edge, for that step. You can reopen Chrome as soon as the account shows Signed in. The same applies to **Sign in again** on an account added from Chrome.
-- **Windows Security may quarantine the Chrome reader.** Reading Chrome's saved sign-in is what info-stealing malware also does, so Microsoft Defender can flag the reader file (`rookie_cookies.pyd` in `.venv`) as `Trojan:Win64/InfoStealer`. It is part of the pinned notebooklm-py dependency and only reads your own Chrome on your own computer. To use the Chrome route, open Windows Security, Virus and threat protection, Protection history, select that entry, then Actions and Allow on device. If you would rather not, use **Sign in** instead: it signs in once in a separate Chrome window kept just for this app and never reads your normal Chrome.
-- **Long paths.** Saved files go into `<folder>/<notebook title>/<overview title>.mp3`. With long titles and a deep output folder the full path can pass 260 characters, which a standard Windows setup refuses. Choose a short output folder (for example `C:\NLH`), or turn on Windows long paths.
+- **Windows Security may quarantine the Chrome reader.** Reading Chrome's saved sign-in is what info-stealing malware also does, so Microsoft Defender can flag the reader file (`rookie_cookies.pyd`, in `.venv` or inside the ready-made app's `_internal` folder) as `Trojan:Win64/InfoStealer`. It is part of the pinned notebooklm-py dependency and only reads the Google sign-in cookies it needs from your own Chrome on your own computer. To use the Chrome route, open Windows Security, Virus and threat protection, Protection history, select that entry, then Actions and Allow on device. If you would rather not, use **Sign in** instead: it signs in once in a separate Chrome window kept just for this app and never reads your normal Chrome.
+- **Long paths.** On Windows, long overview titles are shortened automatically so the saved path stays under 240 characters (the MP3 tags keep the full title), and an output folder too deep even for that is refused with a plain message asking for a shorter folder.
 
 ## Updating
 
