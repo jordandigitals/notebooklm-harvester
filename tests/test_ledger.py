@@ -89,3 +89,29 @@ def test_artifact_id_unique(ledger):
             " VALUES (?,?,?,?,?,?,?,?,?,?)",
             (acct.id, "nb", "dup", "T", "N", "/p", 1, 1.0, "h", "t"),
         )
+
+
+def test_transactions_from_two_threads_do_not_interleave(ledger):
+    """A write from another thread waits until a running transaction has finished."""
+    import threading
+    import time
+
+    acct = ledger.add_account("p1", "L")
+    inside, order = threading.Event(), []
+
+    def long_transaction():
+        with ledger.transaction() as c:
+            inside.set()
+            time.sleep(0.3)
+            c.execute("UPDATE accounts SET label = ? WHERE id = ?", ("from worker", acct.id))
+            order.append("worker done")
+
+    t = threading.Thread(target=long_transaction)
+    t.start()
+    inside.wait(2)
+    ledger.update_account(acct.id, output_dir="/x")  # page thread
+    order.append("page done")
+    t.join()
+    assert order == ["worker done", "page done"]
+    a = ledger.account(acct.id)
+    assert a.label == "from worker" and a.output_dir == "/x"

@@ -59,14 +59,25 @@ def _place(part: Path, final: Path) -> None:
         raise FileExistsError(final)
     try:
         os.link(part, final)  # fails if final exists, on every platform
-        part.unlink()
     except (OSError, NotImplementedError) as exc:
         if isinstance(exc, FileExistsError):
             raise
-        # Some synced folders do not support hard links; fall back to a checked rename.
-        if final.exists():
-            raise FileExistsError(final) from None
-        os.replace(part, final)
+        # Some folders (FAT/exFAT drives, some network shares) cannot hard-link. Copy into
+        # a newly created file instead: "xb" fails if the name exists, so nothing is ever
+        # overwritten (os.replace would overwrite).
+        with open(part, "rb") as src, open(final, "xb") as dst:
+            shutil.copyfileobj(src, dst)
+    _discard_part(part)
+
+
+def _discard_part(part: Path) -> None:
+    """Remove our own .part file; a lock (antivirus, sync) must not fail a finished save."""
+    try:
+        part.unlink()
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        log.warning("could not remove %s: %s", part.name, type(exc).__name__)
 
 
 def harvest_one(
@@ -190,7 +201,7 @@ def harvest_one(
         return ItemResult(ov.artifact_id, ov.title, "failed", "Could not write to the output folder.")
     finally:
         if part is not None and part.exists():
-            part.unlink()  # our own unfinished .part, never a saved MP3
+            _discard_part(part)  # our own unfinished .part, never a saved MP3
         shutil.rmtree(work, ignore_errors=True)
 
 

@@ -60,12 +60,17 @@ def folder_name(notebook_title: str) -> str:
     return safe_stem(notebook_title)[:MAX_FOLDER].rstrip(". ") or "Notebook"
 
 
+def _u16(text: str) -> int:
+    """Length in UTF-16 code units, the unit Windows' path limit counts (emoji count 2)."""
+    return len(text.encode("utf-16-le")) // 2
+
+
 def stem_room(folder: Path, ext: str = ".mp3") -> int | None:
     """Characters left for the file stem in folder under the Windows cap; None off Windows."""
     if not _windows():
         return None
     # len(folder) + separator + stem + suffix room + ext must stay under WIN_MAX_PATH.
-    return WIN_MAX_PATH - 1 - len(os.path.abspath(folder)) - 1 - SUFFIX_ROOM - len(ext)
+    return WIN_MAX_PATH - 1 - _u16(os.path.abspath(folder)) - 1 - SUFFIX_ROOM - _u16(ext)
 
 
 def check_fits(out_dir: Path, notebook_title: str, ext: str = ".mp3") -> None:
@@ -77,11 +82,18 @@ def check_fits(out_dir: Path, notebook_title: str, ext: str = ".mp3") -> None:
 
 def fit_stem(stem: str, room: int | None) -> str:
     """Shorten a stem to room characters (Windows cap), never below WIN_MIN_STEM or empty."""
-    if room is None or len(stem) <= room:
+    if room is None or _u16(stem) <= room:
         return stem
     if room < WIN_MIN_STEM:
         raise PathTooLong()
-    return stem[:room].rstrip(". ") or stem[:room]
+    cut, used = [], 0
+    for ch in stem:  # whole characters only, never half of an emoji
+        used += _u16(ch)
+        if used > room:
+            break
+        cut.append(ch)
+    short = "".join(cut)
+    return short.rstrip(". ") or short
 
 
 def notebook_folder(out_dir: Path, notebook_title: str) -> Path:

@@ -7,6 +7,7 @@ updates that row in place with the new file's details.
 from __future__ import annotations
 
 import sqlite3
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -101,6 +102,9 @@ class Ledger:
     def __init__(self, path: Path | None = None):
         self.path = path or paths.ledger_path()
         self.conn = sqlite3.connect(self.path, check_same_thread=False)
+        # The connection is shared by the page's request threads and the worker; one lock
+        # keeps another thread's commit from landing inside a harvest's transaction.
+        self.lock = threading.RLock()
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.executescript(SCHEMA)
@@ -113,13 +117,14 @@ class Ledger:
 
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
-        """Run statements in one transaction; roll back on any error."""
-        try:
-            yield self.conn
-            self.conn.commit()
-        except Exception:
-            self.conn.rollback()
-            raise
+        """Run statements in one transaction (one thread at a time); roll back on any error."""
+        with self.lock:
+            try:
+                yield self.conn
+                self.conn.commit()
+            except Exception:
+                self.conn.rollback()
+                raise
 
     # ------------------------------------------------------------ accounts
 

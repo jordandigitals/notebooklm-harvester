@@ -190,11 +190,18 @@ class _FakePage:
 
 
 class _FakeContext:
-    def __init__(self, page):
+    def __init__(self, page, stale_at_launch=False):
         self.pages = [page]
+        self.stale = stale_at_launch
 
     def cookies(self, url):
-        return [{"name": "SID"}, {"name": "NID"}]  # names only, like the real call is used
+        # A fresh profile has no sign-in cookie until the person signs in (after the first
+        # visit); a stale profile already carries an old one that never changes.
+        if self.stale:
+            return [{"name": "SID", "expires": 100}, {"name": "NID", "expires": 5}]
+        if not self.pages[0].visited:
+            return [{"name": "NID", "expires": 5}]
+        return [{"name": "SID", "expires": 200}, {"name": "NID", "expires": 5}]
 
     def close(self):
         pass
@@ -221,5 +228,102 @@ def test_signin_window_takes_signed_in_window_to_notebooklm(home, monkeypatch):
     monkeypatch.setattr(adapter, "NUDGE_AFTER_S", 0)
     monkeypatch.setattr(adapter.time, "sleep", lambda s: None)
     assert adapter._google_signin_window("acct-x", 30) is True
-    assert page.visited[0] == adapter.GOOGLE_SIGNIN_URL
-    assert page.visited[-1] == adapter.NOTEBOOKLM_URL
+    assert page.visited[0] == adapter.google_signin_url()
+    assert page.visited[-1] == adapter.notebooklm_url()
+
+
+def _fake_playwright(monkeypatch, ctx):
+    import sys
+    import types
+
+    class _PW:
+        def __enter__(self):
+            launcher = types.SimpleNamespace(launch_persistent_context=lambda **kw: ctx)
+            return types.SimpleNamespace(chromium=launcher)
+
+        def __exit__(self, *a):
+            return False
+
+    fake = types.SimpleNamespace(sync_playwright=lambda: _PW())
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", fake)
+    monkeypatch.setattr(adapter, "NUDGE_AFTER_S", 0)
+    monkeypatch.setattr(adapter.time, "sleep", lambda s: None)
+
+
+def test_signin_window_never_nudges_on_stale_cookies(home, monkeypatch):
+    """An old sign-in cookie left in the profile must not pull the person off Google's page."""
+    page = _FakePage("about:blank")
+    _fake_playwright(monkeypatch, _FakeContext(page, stale_at_launch=True))
+    assert adapter._google_signin_window("acct-x", 1) is False
+    assert page.visited == [adapter.google_signin_url()]  # never sent to NotebookLM
+
+
+def test_notebooklm_address_comes_from_the_library():
+    from notebooklm.config import get_base_url
+
+    assert adapter.notebooklm_url() == get_base_url().rstrip("/") + "/"
+    assert adapter.google_signin_url().startswith(
+        "https://accounts.google.com/ServiceLogin?continue=https%3A"
+    )
+
+
+@pytest.mark.parametrize(
+    ("args", "allowed"),
+    [
+        (["--profile", "p", "auth", "check", "--json"], True),
+        (["login", "--browser-cookies", "chrome::Profile 2"], True),
+        (["--profile", "p", "login", "--browser", "chrome"], True),
+        (["delete", "-n", "nb"], False),
+        (["-n", "nb", "source", "add", "f.pdf"], False),
+        (["generate", "audio"], False),
+        ([], False),
+    ],
+)
+def test_library_cli_runs_only_sign_in_commands(args, allowed, monkeypatch):
+    """The packaged exe passes its arguments through; only auth and login may reach the library."""
+    import sys
+    import types
+
+    ran = []
+    fake_cli = types.SimpleNamespace(main=lambda: ran.append(1))
+    monkeypatch.setitem(sys.modules, "notebooklm.notebooklm_cli", fake_cli)
+    monkeypatch.setattr(adapter, "_windows_chrome_cookie_fix", lambda: None)
+    if allowed:
+        adapter.run_library_cli(args)
+        assert ran == [1]
+    else:
+        with pytest.raises(SystemExit):
+            adapter.run_library_cli(args)
+        assert ran == []
+
+
+def test_redact_cookie_values_with_slashes_and_json_values():
+    """SAPISID-style values (xxxx/yyyy) and JSON value fields are removed; paths survive."""
+    samples = [
+        "SAPISID=AbCdEfGh1234ijkl/MnOpQrSt5678uvwx",
+        '{"name": "x", "value": "AbCdEfGhIjKlMnOpQrSt/12345"}',
+        "token list AbCdEfGh1234ijkl/MnOpQrSt5678uvwx done",
+        "SID=g.a000short",
+    ]
+    for s in samples:
+        out = redact(s)
+        assert "1234ijkl" not in out and "IjKlMnOp" not in out and "a000short" not in out, out
+    path = "C:/repos/notebooklm-harvester/.venv/Lib/site-packages/notebooklm/_auth/browser_capture.py"
+    assert redact(path) == path
+
+
+def test_tracebacks_in_the_log_are_redacted():
+    """log.exception writes a traceback; the formatter redacts the whole formatted record."""
+    import logging
+    import sys
+
+    from nlh.log import RedactingFormatter, get_logger
+
+    try:
+        raise RuntimeError("Cookie: __Secure-1PSID=AbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcd")
+    except RuntimeError:
+        record = logging.LogRecord("nlh", logging.ERROR, __file__, 1, "job failed", (), sys.exc_info())
+    assert any(isinstance(h.formatter, RedactingFormatter) for h in get_logger().handlers)
+    text = RedactingFormatter("%(levelname)s %(message)s").format(record)
+    assert "AbCdEfGhIjKl" not in text and "__Secure-1PSID" not in text
+    assert "job failed" in text and "Traceback" in text
