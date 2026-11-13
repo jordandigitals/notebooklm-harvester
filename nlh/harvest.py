@@ -7,6 +7,7 @@ Saved MP3s are never deleted or overwritten (ARCH-RULES 2).
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import sqlite3
 import tempfile
@@ -218,3 +219,71 @@ def harvest_many(
             step(res.message, 1.0)
             results.append(res)
     return results
+
+
+_TAG = re.compile(r"notebooklm:(\S+)\s+artifact:(\S+)")
+
+
+@dataclass
+class ScanResult:
+    """What a folder scan found."""
+
+    added: int = 0
+    relinked: int = 0
+    already: int = 0
+    ignored: int = 0
+
+
+def scan_folder(
+    ledger: Ledger,
+    account: Account,
+    folder: Path,
+    known: dict[str, AudioOverview],
+    on_step: Callable[[str], None] | None = None,
+) -> ScanResult:
+    """Rebuild ledger rows from MP3 tags in an output folder (R14).
+
+    Only reads files: it never renames, retags or deletes them. A file counts when its
+    comment tag names an artifact id that belongs to this account (known holds the
+    account's overviews by artifact id). New ids get a ledger row; a row whose file
+    went missing is pointed at the found file. Everything else is ignored.
+    """
+    result = ScanResult()
+    files = sorted(p for p in Path(folder).iterdir() if p.is_file() and p.suffix.lower() == ".mp3")
+    for i, path in enumerate(files):
+        if on_step:
+            on_step(f"Checking file {i + 1} of {len(files)}")
+        try:
+            info = media.probe(path)
+        except media.MediaError:
+            result.ignored += 1
+            continue
+        match = _TAG.search(info.tags.get("comment", ""))
+        if not match or match.group(2) not in known:
+            result.ignored += 1
+            continue
+        ov = known[match.group(2)]
+        row = ledger.harvest(ov.artifact_id)
+        if row and row.file_present:
+            result.already += 1
+            continue
+        with ledger.transaction() as c:
+            ledger.record(
+                c,
+                account_id=account.id,
+                notebook_id=ov.notebook_id,
+                artifact_id=ov.artifact_id,
+                overview_title=ov.title,
+                notebook_title=ov.notebook_title,
+                created_at=ov.created_at,
+                saved_path=str(path),
+                size_bytes=path.stat().st_size,
+                duration_s=info.duration,
+                sha256=media.sha256(path),
+            )
+        if row:
+            result.relinked += 1
+        else:
+            result.added += 1
+        log.info("scan: recorded artifact %s from %s", ov.artifact_id, path.name)
+    return result
