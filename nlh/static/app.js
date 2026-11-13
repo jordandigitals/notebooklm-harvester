@@ -9,7 +9,10 @@ const STATUS_TEXT = {
   queued: "Waiting", running: "Working", done: "Done", failed: "Problem",
 };
 
-const state = { accounts: [], selected: null, jobId: null, library: null, pickerPath: "", pickerParent: null };
+const state = {
+  accounts: [], selected: null, jobId: null, library: null, pickerPath: "", pickerParent: null,
+  autoLoaded: new Set(),
+};
 
 // ------------------------------------------------------------ helpers
 
@@ -162,13 +165,18 @@ async function loadLibrary() {
   state.library = data.loaded ? data.notebooks : null;
   renderLibrary();
   renderDetail();
+  // Read the notebooks automatically the first time an account is shown (once per page load).
+  if ((!data.loaded || data.cached_at) && !busy() && !state.autoLoaded.has(a.id)) {
+    state.autoLoaded.add(a.id);
+    startJob(api(`/api/accounts/${a.id}/refresh`, { method: "POST" }));
+  }
 }
 
 function renderLibrary() {
   const box = $("notebooks");
   box.replaceChildren();
   if (!state.library) {
-    box.append(el("p", "empty", "Press Refresh notebooks to read this account's notebooks."));
+    box.append(el("p", "empty", busy() ? "Reading notebooks..." : "Press Refresh notebooks to read this account's notebooks."));
     return;
   }
   const withAudio = state.library.filter((nb) => nb.overviews.length);

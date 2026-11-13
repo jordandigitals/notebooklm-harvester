@@ -21,7 +21,7 @@ def fake(monkeypatch, home):
         d.mkdir(parents=True, exist_ok=True)
         (d / "storage_state.json").write_text("{}")  # fixture only, no real session
 
-    def login_from_chrome(name, folder, email):
+    def login_from_chrome(name, folder, email, verify=True):
         state["chrome_logins"] += 1
         write_session(name)
         return SessionStatus("ok", "Signed in.", email)
@@ -124,3 +124,48 @@ def test_fake_second_profile_directory_kept_separate(ledger, fake):
     assert (
         paths.storage_path(a1.profile_name).parent.parent == paths.storage_path(a2.profile_name).parent.parent
     )
+
+
+def test_with_session_rereads_chrome_once_and_retries(ledger, fake):
+    a, _ = accounts.add_from_chrome(ledger, "Profile 2")
+    fake["chrome_logins"] = 0
+    calls = []
+
+    def flaky():
+        calls.append(1)
+        if len(calls) == 1:
+            raise adapter.AdapterError("expired", "needs_sign_in")
+        return "listing"
+
+    assert accounts.with_session(ledger, a, flaky) == "listing"
+    assert len(calls) == 2 and fake["chrome_logins"] == 1
+    assert ledger.account(a.id).last_status == "ok"
+
+
+def test_with_session_gives_up_after_one_retry(ledger, fake):
+    a, _ = accounts.add_from_chrome(ledger, "Profile 2")
+    fake["chrome_logins"] = 0
+
+    def always_stale():
+        raise adapter.AdapterError("expired", "needs_sign_in")
+
+    with pytest.raises(adapter.AdapterError):
+        accounts.with_session(ledger, a, always_stale)
+    assert fake["chrome_logins"] == 1
+    assert ledger.account(a.id).last_status == "needs_sign_in"
+
+
+def test_with_session_signin_account_not_renewed(ledger, fake):
+    a, _ = accounts.add_interactive(ledger)
+
+    def stale():
+        raise adapter.AdapterError("expired", "needs_sign_in")
+
+    with pytest.raises(adapter.AdapterError):
+        accounts.with_session(ledger, a, stale)
+    assert fake["interactive_logins"] == 1
+
+
+def test_stale_csrf_error_maps_to_sign_in():
+    err = adapter._map_error(ValueError("CSRF token not found in HTML. Final URL: x"))
+    assert err.state == "needs_sign_in"

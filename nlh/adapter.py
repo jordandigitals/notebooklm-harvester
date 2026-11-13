@@ -29,7 +29,7 @@ from pathlib import Path
 from nlh import paths
 from nlh.log import get_logger, redact
 
-LIST_SPACING_S = 2.0
+LIST_SPACING_S = 1.0
 BACKOFF_S = (4, 8, 16)
 STATUS_NAMES = {
     0: "unknown",
@@ -120,6 +120,10 @@ def _map_error(exc: Exception) -> AdapterError:
     name = type(exc).__name__
     log.warning("library error %s: %s", name, redact(str(exc))[:300])
     if isinstance(exc, (ex.AuthError, ex.AuthExtractionError, ex.HeadlessReauthError)):
+        return AdapterError("This account's Google sign-in has expired. Use Sign in again.", "needs_sign_in")
+    text = str(exc).lower()
+    if "csrf token not found" in text or "login required" in text:
+        # A stale copied session: Google serves a page without the sign-in token.
         return AdapterError("This account's Google sign-in has expired. Use Sign in again.", "needs_sign_in")
     if isinstance(exc, ex.RateLimitError):
         return AdapterError("NotebookLM is limiting requests right now. Try again later.")
@@ -298,11 +302,15 @@ def check_session(profile_name: str) -> SessionStatus:
     return SessionStatus("needs_sign_in", "This account needs to sign in again.", email)
 
 
-def _login_result(proc: subprocess.CompletedProcess, profile_name: str) -> SessionStatus:
-    """Turn a login subprocess result into a SessionStatus, logging only safe facts."""
+def _login_result(proc: subprocess.CompletedProcess, profile_name: str, verify: bool = True) -> SessionStatus:
+    """Turn a login subprocess result into a SessionStatus, logging only safe facts.
+
+    verify=False skips the follow-up auth check (a slow CLI run) when the caller is
+    about to use the session anyway and will notice if it does not work.
+    """
     paths.secure_session_file(profile_name)
     if proc.returncode == 0 and paths.storage_path(profile_name).exists():
-        return check_session(profile_name)
+        return check_session(profile_name) if verify else SessionStatus("ok", "Signed in.")
     tail = [
         ln
         for ln in (proc.stderr or "").splitlines()
@@ -312,7 +320,9 @@ def _login_result(proc: subprocess.CompletedProcess, profile_name: str) -> Sessi
     return SessionStatus("needs_sign_in", "Sign-in did not complete. Details are in the log.")
 
 
-def login_from_chrome(profile_name: str, chrome_folder: str, email: str) -> SessionStatus:
+def login_from_chrome(
+    profile_name: str, chrome_folder: str, email: str, verify: bool = True
+) -> SessionStatus:
     """Save a session from an already signed-in Chrome profile (reads local cookies once)."""
     try:
         proc = _cli(
@@ -329,7 +339,7 @@ def login_from_chrome(profile_name: str, chrome_folder: str, email: str) -> Sess
         )
     except subprocess.TimeoutExpired:
         return SessionStatus("library_error", "Reading the Chrome sign-in timed out.")
-    return _login_result(proc, profile_name)
+    return _login_result(proc, profile_name, verify)
 
 
 def login_interactive(profile_name: str, timeout_s: int = 300) -> SessionStatus:

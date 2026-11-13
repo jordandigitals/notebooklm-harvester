@@ -160,3 +160,20 @@ def test_server_settings_persist(home, monkeypatch):
     p2, t2 = server._server_settings()
     assert (p1, t1) == (p2, t2)
     assert oct((home / "server.json").stat().st_mode & 0o777) in ("0o600",) or server.sys.platform == "win32"
+
+
+def test_listing_cached_across_restart(ledger, monkeypatch):
+    a = ledger.add_account("p1", "One")
+    nb = Notebook("nb-1", "Notebook", None)
+    ovs = [AudioOverview("a1", "First", "nb-1", "Notebook", None, "completed")]
+    monkeypatch.setattr(adapter, "list_library", lambda profile, progress=None: [(nb, ovs)])
+    app = server.create_app(TOKEN, ledger)
+    c = app.test_client()
+    _wait(c, c.post(f"/api/accounts/{a.id}/refresh", headers=H).get_json()["id"])
+    fresh = c.get(f"/api/accounts/{a.id}/library", headers=H).get_json()
+    assert fresh["loaded"] and fresh["cached_at"] is None
+    # A new app (restart) shows the saved listing at once, marked as cached.
+    c2 = server.create_app(TOKEN, ledger).test_client()
+    again = c2.get(f"/api/accounts/{a.id}/library", headers=H).get_json()
+    assert again["loaded"] and again["cached_at"]
+    assert again["notebooks"][0]["overviews"][0]["title"] == "First"
