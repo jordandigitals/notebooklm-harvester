@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -183,7 +184,7 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd == "serve":
         from nlh.server import serve
 
-        return serve()
+        return serve(open_browser=os.environ.get("NLH_NO_BROWSER") != "1")
     ledger = Ledger()
     try:
         return {
