@@ -1,0 +1,45 @@
+# Saved Google sessions and NotebookLM profile data (secrets, never commit)
+storage_state.json
+*.storage_state.json
+.notebooklm/
+profiles/
+cookies*.json
+*.cookies
+
+# Environment and secrets
+.env
+.env.*
+
+# Logs
+logs/
+*.log
+
+# Local databases (ledger)
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+
+# Test and harvested audio
+*.m4a
+*.mp3
+*.mp4
+*.part
+
+# Build output
+build/
+dist/
+*.egg-info/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
