@@ -1,0 +1,16 @@
+[project]
+name = "notebooklm-harvester"
+version = "0.1.0"
+description = "Harvest NotebookLM Audio Overviews to MP3 (read-only toward NotebookLM)."
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

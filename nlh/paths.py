@@ -1,0 +1,75 @@
+"""App home and file locations, the same logic on Mac, Windows and Linux (ARCH-RULES 9)."""
+
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+
+def app_home() -> Path:
+    """Return the app home directory, creating it with owner-only permissions.
+
+    NLH_HOME overrides the default. Defaults: Windows %LOCALAPPDATA%\\NLH, others ~/.nlh.
+    The saved Google sessions live under it, so it must never sit inside the repo.
+    """
+    override = os.environ.get("NLH_HOME")
+    if override:
+        home = Path(override).expanduser()
+    elif sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+        home = Path(base) / "NLH"
+    else:
+        home = Path.home() / ".nlh"
+    ensure_private_dir(home)
+    return home
+
+
+def ensure_private_dir(path: Path) -> Path:
+    """Create a directory if needed and restrict it to the owner where the OS supports it."""
+    path.mkdir(parents=True, exist_ok=True)
+    if sys.platform != "win32":
+        os.chmod(path, 0o700)
+    return path
+
+
+def notebooklm_home() -> Path:
+    """Directory passed to the library as NOTEBOOKLM_HOME (holds profiles/<name>/)."""
+    return ensure_private_dir(app_home() / "home")
+
+
+def profile_dir(profile_name: str) -> Path:
+    """Folder of one account's library profile."""
+    return notebooklm_home() / "profiles" / profile_name
+
+
+def storage_path(profile_name: str) -> Path:
+    """The account's saved session file. Secret: never read into logs or output."""
+    return profile_dir(profile_name) / "storage_state.json"
+
+
+def ledger_path() -> Path:
+    """SQLite ledger location."""
+    return app_home() / "ledger.db"
+
+
+def log_dir() -> Path:
+    """Folder for the local technical log."""
+    return ensure_private_dir(app_home() / "logs")
+
+
+def temp_dir() -> Path:
+    """Scratch folder for downloads in progress (cleaned after each item)."""
+    return ensure_private_dir(app_home() / "tmp")
+
+
+def secure_session_file(profile_name: str) -> None:
+    """Set owner-only permissions on an account's session file and folder (Mac and Linux)."""
+    if sys.platform == "win32":
+        return
+    folder = profile_dir(profile_name)
+    if folder.exists():
+        os.chmod(folder, 0o700)
+        for item in folder.iterdir():
+            if item.is_file():
+                os.chmod(item, 0o600)
