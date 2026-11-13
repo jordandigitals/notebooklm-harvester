@@ -196,16 +196,16 @@ def test_no_running_instance_without_settings(home):
 
 def test_state_and_account_flags_for_windows(client, ledger, monkeypatch, tmp_path):
     """The page learns it runs on Windows, and gets the long-folder warning flag (D-022, D-023)."""
-    from nlh import server as srv
+    from nlh import paths
 
     _, c = client
     acct = ledger.add_account("p1", "L")
     deep = tmp_path / ("d" * 160)
     deep.mkdir()
     ledger.update_account(acct.id, output_dir=str(deep))
-    monkeypatch.setattr(srv.sys, "platform", "win32")
+    monkeypatch.setattr(paths, "is_windows", lambda: True)
     data = c.get("/api/state", headers=H).get_json()
     assert data["windows"] is True and data["accounts"][0]["long_folder"] is True
-    monkeypatch.setattr(srv.sys, "platform", "darwin")
+    monkeypatch.setattr(paths, "is_windows", lambda: False)
     data = c.get("/api/state", headers=H).get_json()
     assert data["windows"] is False and data["accounts"][0]["long_folder"] is False

@@ -168,8 +168,7 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
             "chrome_profile": a.chrome_profile,
             "output_dir": a.output_dir,
             # D-023: warn on Windows when the output folder itself is long.
-            "long_folder": sys.platform == "win32"
-            and len(a.output_dir or "") > naming.LONG_FOLDER_WARNING_CHARS,
+            "long_folder": paths.is_windows() and len(a.output_dir or "") > naming.LONG_FOLDER_WARNING_CHARS,
             "status": a.last_status or "unknown",
             "last_checked": a.last_checked,
             "saved_count": len(saved),
@@ -194,7 +193,7 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
         portable = paths.portable_home() is not None and not os.environ.get("NLH_HOME")
         return jsonify(
             interactive=adapter.interactive_available(),
-            windows=sys.platform == "win32",
+            windows=paths.is_windows(),
             portable=portable,
             portable_ack=(paths.app_home() / ".portable-ack").exists(),
             app_name=APP_NAME,

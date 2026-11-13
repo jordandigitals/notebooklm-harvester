@@ -7,6 +7,11 @@ import sys
 from pathlib import Path
 
 
+def is_windows() -> bool:
+    """True on Windows. The one switch for Windows-only behaviour (tests flip it)."""
+    return sys.platform == "win32"
+
+
 def app_dir() -> Path:
     """Folder the app runs from: beside the packaged executable, or the source checkout."""
     if getattr(sys, "frozen", False):

@@ -175,10 +175,8 @@ def test_stale_csrf_error_maps_to_sign_in():
 
 def test_windows_sign_in_again_moves_chrome_account_to_own_signin(ledger, fake, monkeypatch):
     """D-022: on Windows, Sign in again on a Chrome account opens the own window, not Chrome."""
-    import sys
-
     acct, _ = accounts.add_from_chrome(ledger, "Profile 2")
-    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(paths, "is_windows", lambda: True)
     monkeypatch.setattr(adapter, "interactive_available", lambda: True)
     monkeypatch.setattr(
         adapter,
@@ -194,10 +192,8 @@ def test_windows_sign_in_again_moves_chrome_account_to_own_signin(ledger, fake, 
 
 
 def test_own_signin_with_wrong_google_account_is_refused(ledger, fake, monkeypatch):
-    import sys
-
     acct, _ = accounts.add_from_chrome(ledger, "Profile 2")
-    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(paths, "is_windows", lambda: True)
     monkeypatch.setattr(adapter, "interactive_available", lambda: True)
     monkeypatch.setattr(
         adapter,
@@ -210,10 +206,8 @@ def test_own_signin_with_wrong_google_account_is_refused(ledger, fake, monkeypat
 
 
 def test_mac_sign_in_again_still_rereads_chrome(ledger, fake, monkeypatch):
-    import sys
-
     acct, _ = accounts.add_from_chrome(ledger, "Profile 2")
-    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(paths, "is_windows", lambda: False)
     before = fake["chrome_logins"]
     assert accounts.sign_in_again(ledger, ledger.account(acct.id)).ok
     assert fake["chrome_logins"] == before + 1
@@ -222,10 +216,8 @@ def test_mac_sign_in_again_still_rereads_chrome(ledger, fake, monkeypatch):
 
 def test_windows_stale_chrome_account_skips_automatic_chrome_reread(ledger, fake, monkeypatch):
     """On Windows a stale Chrome account goes straight to Sign in again (no locked re-read)."""
-    import sys
-
     acct, _ = accounts.add_from_chrome(ledger, "Profile 2")
-    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(paths, "is_windows", lambda: True)
     monkeypatch.setattr(adapter, "interactive_available", lambda: True)
     before = fake["chrome_logins"]
 

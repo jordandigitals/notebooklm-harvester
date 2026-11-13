@@ -5,7 +5,7 @@ import shutil
 
 from conftest import needs_ffmpeg
 
-from nlh import harvest, media, naming
+from nlh import harvest, media, naming, paths
 from nlh.adapter import AdapterError, AudioOverview
 
 
@@ -159,19 +159,20 @@ def test_saved_into_notebook_subfolder(ledger, tmp_path, sample_m4a):
     assert [p.name for p in out.iterdir()] == ["Notes2026 Plans"]
 
 
-def _deep_out(tmp_path, total):
-    base = tmp_path.resolve()
-    out = base / ("d" * (total - len(str(base)) - 1))
+def _deep_out(tmp_path, monkeypatch, total):
+    """Output folder treated as total characters long (cap shifted by the real temp path)."""
+    out = tmp_path.resolve() / "out"
     out.mkdir()
+    monkeypatch.setattr(naming, "WIN_MAX_PATH", 240 - total + len(str(out)))
     return out
 
 
 @needs_ffmpeg
 def test_windows_deep_folder_long_titles_save_under_240(ledger, tmp_path, sample_m4a, monkeypatch):
     """D-023: the file saves, its path is under 240, and the ledger row matches the file."""
-    monkeypatch.setattr(naming.sys, "platform", "win32")
+    monkeypatch.setattr(paths, "is_windows", lambda: True)
     acct = ledger.add_account("p1", "L")
-    out = _deep_out(tmp_path, 100)
+    out = _deep_out(tmp_path, monkeypatch, 100)
     ov = AudioOverview("art-long", "O" * 185, "nb-1", "N" * 126, "2026-11-12T09:00:00+00:00", "completed")
     r = harvest.harvest_one(ledger, acct, ov, out, downloader=FakeDownloader(sample_m4a))
     assert r.outcome == "saved", r.message
@@ -186,9 +187,9 @@ def test_windows_deep_folder_long_titles_save_under_240(ledger, tmp_path, sample
 
 def test_windows_too_deep_folder_refused_cleanly(ledger, tmp_path, monkeypatch):
     """D-023: plain message, no download, no folder, no partial file, no ledger row."""
-    monkeypatch.setattr(naming.sys, "platform", "win32")
+    monkeypatch.setattr(paths, "is_windows", lambda: True)
     acct = ledger.add_account("p1", "L")
-    out = _deep_out(tmp_path, 200)
+    out = _deep_out(tmp_path, monkeypatch, 200)
     calls = []
     r = harvest.harvest_one(ledger, acct, _ov(), out, downloader=lambda *a: calls.append(a))
     assert r.outcome == "failed" and r.message == naming.TOO_LONG_MESSAGE

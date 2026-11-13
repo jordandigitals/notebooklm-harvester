@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import os
 import re
-import sys
 import unicodedata
 from pathlib import Path
+
+from nlh import paths
 
 _ILLEGAL = re.compile(r'[<>:"/\\|?*\x00-\x1f\x7f]')
 _RESERVED = (
@@ -39,7 +40,7 @@ class PathTooLong(Exception):
 
 def _windows() -> bool:
     """True when the Windows path cap applies."""
-    return sys.platform == "win32"
+    return paths.is_windows()
 
 
 def safe_stem(title: str) -> str:
