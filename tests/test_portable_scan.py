@@ -91,3 +91,14 @@ def test_scan_relinks_moved_file(ledger, tmp_path, sample_m4a):
     r = harvest.scan_folder(ledger, acct, new, known)
     assert r.relinked == 1 and ledger.harvest("art-a").saved_path == str(new / "A.mp3")
     assert len(ledger.harvests()) == 1
+
+
+@needs_ffmpeg
+def test_scan_finds_files_in_notebook_subfolders(ledger, tmp_path, sample_m4a):
+    acct = ledger.add_account("p1", "Mine")
+    sub = tmp_path / "synced" / "Notebook"
+    sub.mkdir(parents=True)
+    _tagged(sample_m4a, sub / "B.mp3", "nb-1", "art-b", "B")
+    known = {"art-b": AudioOverview("art-b", "B", "nb-1", "Notebook", None, "completed")}
+    r = harvest.scan_folder(ledger, acct, tmp_path / "synced", known)
+    assert r.added == 1 and ledger.harvest("art-b").saved_path == str(sub / "B.mp3")

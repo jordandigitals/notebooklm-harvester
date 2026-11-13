@@ -37,8 +37,8 @@ def test_harvest_saves_file_and_row_then_skips(ledger, tmp_path, sample_m4a):
     dl = FakeDownloader(sample_m4a)
     r = harvest.harvest_one(ledger, acct, _ov(), out, downloader=dl)
     assert r.outcome == "saved"
-    f = out / "How AI Works.mp3"
-    assert f.exists() and not list(out.glob("*.part"))
+    f = out / "My Notebook" / "How AI Works.mp3"
+    assert f.exists() and not list(out.rglob("*.part"))
     row = ledger.harvest("art-1")
     assert row.saved_path == str(f)
     assert row.size_bytes == f.stat().st_size
@@ -82,12 +82,13 @@ def test_bad_audio_leaves_nothing(ledger, tmp_path):
 @needs_ffmpeg
 def test_existing_file_never_overwritten(ledger, tmp_path, sample_m4a):
     acct, out = _setup(ledger, tmp_path)
-    keep = out / "How AI Works.mp3"
+    (out / "My Notebook").mkdir()
+    keep = out / "My Notebook" / "How AI Works.mp3"
     keep.write_bytes(b"jordan's own file")
     r = harvest.harvest_one(ledger, acct, _ov(), out, downloader=FakeDownloader(sample_m4a))
     assert r.outcome == "saved"
     assert keep.read_bytes() == b"jordan's own file"
-    assert (out / "How AI Works (2).mp3").exists()
+    assert (out / "My Notebook" / "How AI Works (2).mp3").exists()
 
 
 @needs_ffmpeg
@@ -95,7 +96,10 @@ def test_two_overviews_same_title_both_kept(ledger, tmp_path, sample_m4a):
     acct, out = _setup(ledger, tmp_path)
     dl = FakeDownloader(sample_m4a)
     harvest.harvest_many(ledger, acct, [_ov("a1"), _ov("a2")], out, downloader=dl)
-    assert sorted(p.name for p in out.iterdir()) == ["How AI Works (2).mp3", "How AI Works.mp3"]
+    assert sorted(p.name for p in (out / "My Notebook").iterdir()) == [
+        "How AI Works (2).mp3",
+        "How AI Works.mp3",
+    ]
     assert len(ledger.harvests()) == 2
 
 
@@ -142,3 +146,13 @@ def test_temp_folder_cleaned(ledger, tmp_path, sample_m4a, home):
     acct, out = _setup(ledger, tmp_path)
     harvest.harvest_one(ledger, acct, _ov(), out, downloader=FakeDownloader(sample_m4a))
     assert list((home / "tmp").iterdir()) == []
+
+
+@needs_ffmpeg
+def test_saved_into_notebook_subfolder(ledger, tmp_path, sample_m4a):
+    acct, out = _setup(ledger, tmp_path)
+    ov = AudioOverview("a9", "Episode: One?", "nb-9", 'Notes/2026 "Plans"', None, "completed")
+    r = harvest.harvest_one(ledger, acct, ov, out, downloader=FakeDownloader(sample_m4a))
+    assert r.outcome == "saved"
+    assert (out / "Notes2026 Plans" / "Episode One.mp3").exists()
+    assert [p.name for p in out.iterdir()] == ["Notes2026 Plans"]
