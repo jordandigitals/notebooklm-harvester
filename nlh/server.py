@@ -1,0 +1,443 @@
+"""Local web page (D-015, D-016): Flask on 127.0.0.1 with a per-launch token (R8).
+
+All slow work (listing, harvesting, sign-ins) runs on one background worker, one
+job at a time, so there is never more than one download or sign-in in flight.
+"""
+
+from __future__ import annotations
+
+import hmac
+import os
+import queue
+import secrets
+import socket
+import string
+import subprocess
+import sys
+import threading
+import uuid
+import webbrowser
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from flask import Flask, abort, jsonify, request, send_from_directory
+
+from nlh import APP_NAME, __version__, accounts, adapter, harvest, media
+from nlh.ledger import Ledger
+from nlh.log import get_logger
+
+log = get_logger()
+STATIC = Path(__file__).parent / "static"
+
+
+# ---------------------------------------------------------------- jobs
+
+
+@dataclass
+class Job:
+    """One unit of background work and its visible progress."""
+
+    id: str
+    kind: str
+    account_id: int | None
+    title: str
+    state: str = "queued"  # queued | running | done | failed
+    lines: list[str] = field(default_factory=list)
+    items: dict[str, dict] = field(default_factory=dict)
+    message: str = ""
+
+    def view(self) -> dict:
+        """JSON view for the page."""
+        return {
+            "id": self.id,
+            "kind": self.kind,
+            "account_id": self.account_id,
+            "title": self.title,
+            "state": self.state,
+            "lines": self.lines[-50:],
+            "items": self.items,
+            "message": self.message,
+        }
+
+
+class Worker:
+    """Single background thread that runs jobs in order."""
+
+    def __init__(self):
+        self.q: queue.Queue = queue.Queue()
+        self.jobs: dict[str, Job] = {}
+        self.order: list[str] = []
+        threading.Thread(target=self._loop, daemon=True, name="nlh-worker").start()
+
+    def submit(self, kind: str, title: str, fn, account_id: int | None = None) -> Job:
+        """Queue a job; fn receives the Job to report progress."""
+        job = Job(uuid.uuid4().hex[:12], kind, account_id, title)
+        self.jobs[job.id] = job
+        self.order.append(job.id)
+        self.q.put((job, fn))
+        return job
+
+    def busy(self) -> bool:
+        """True while any job is queued or running."""
+        return any(self.jobs[j].state in ("queued", "running") for j in self.order)
+
+    def _loop(self):
+        while True:
+            job, fn = self.q.get()
+            job.state = "running"
+            try:
+                fn(job)
+                if job.state == "running":
+                    job.state = "done"
+            except (accounts.AccountError, adapter.AdapterError) as exc:
+                job.state, job.message = "failed", getattr(exc, "message", str(exc))
+            except Exception as exc:  # last resort: plain message, detail in the log
+                log.exception("job %s failed: %s", job.kind, type(exc).__name__)
+                job.state, job.message = "failed", "Something went wrong. Details are in the log."
+
+
+# ---------------------------------------------------------------- app
+
+
+def create_app(token: str, ledger: Ledger | None = None) -> Flask:
+    """Build the Flask app. Every request needs the launch token and a local Host."""
+    app = Flask(__name__, static_folder=None)
+    led = ledger or Ledger()
+    worker = Worker()
+    library: dict[int, list] = {}  # account id -> [(Notebook, [AudioOverview])]
+
+    @app.before_request
+    def guard():
+        host = (request.host or "").split(":")[0]
+        if host not in ("127.0.0.1", "localhost"):
+            abort(403)
+        if request.path.startswith("/static/"):
+            return None
+        given = request.args.get("t") or request.headers.get("X-NLH-Token") or ""
+        if not hmac.compare_digest(given, token):
+            abort(403)
+        return None
+
+    @app.after_request
+    def headers(resp):
+        resp.headers["Cache-Control"] = "no-store"
+        resp.headers["X-Frame-Options"] = "DENY"
+        resp.headers["Referrer-Policy"] = "no-referrer"
+        resp.headers["Content-Security-Policy"] = (
+            "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:"
+        )
+        return resp
+
+    def body() -> dict:
+        return request.get_json(silent=True) or {}
+
+    def get_account(account_id: int):
+        acct = led.account(account_id)
+        if not acct:
+            abort(404)
+        return acct
+
+    def account_view(a) -> dict:
+        saved = led.harvests(a.id)
+        return {
+            "id": a.id,
+            "label": a.label,
+            "email": a.email,
+            "chrome_profile": a.chrome_profile,
+            "output_dir": a.output_dir,
+            "status": a.last_status or "unknown",
+            "last_checked": a.last_checked,
+            "saved_count": len(saved),
+        }
+
+    # ------------------------------------------------------------ page
+
+    @app.get("/")
+    def index():
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        return html.replace("{{APP_NAME}}", APP_NAME).replace("{{VERSION}}", __version__)
+
+    @app.get("/static/<path:name>")
+    def static_file(name):
+        return send_from_directory(STATIC, name)
+
+    # ------------------------------------------------------------ state
+
+    @app.get("/api/state")
+    def state():
+        current = [worker.jobs[j].view() for j in worker.order[-20:]]
+        return jsonify(
+            app_name=APP_NAME,
+            version=__version__,
+            tools=media.tools_available(),
+            accounts=[account_view(a) for a in led.accounts()],
+            jobs=current,
+        )
+
+    @app.get("/api/jobs/<job_id>")
+    def job(job_id):
+        j = worker.jobs.get(job_id)
+        if not j:
+            abort(404)
+        return jsonify(j.view())
+
+    # ------------------------------------------------------------ accounts
+
+    @app.get("/api/chrome")
+    def chrome():
+        return jsonify(
+            [
+                {"folder": p.folder, "name": p.name, "email": p.email, "added": added}
+                for p, added in accounts.chrome_candidates(led)
+            ]
+        )
+
+    @app.post("/api/accounts/chrome")
+    def add_chrome():
+        folder = str(body().get("folder", ""))
+
+        def run(job):
+            acct, _ = accounts.add_from_chrome(led, folder)
+            job.account_id = acct.id
+            job.message = f"Added {acct.label}."
+
+        return jsonify(worker.submit("add", f"Adding {folder}", run).view())
+
+    @app.post("/api/accounts/signin")
+    def add_signin():
+        label = str(body().get("label", "")).strip() or None
+
+        def run(job):
+            job.lines.append("A Chrome window is opening. Sign in to Google there.")
+            acct, _ = accounts.add_interactive(led, label)
+            job.account_id = acct.id
+            job.message = f"Added {acct.label}."
+
+        return jsonify(worker.submit("add", "Adding an account by sign-in", run).view())
+
+    @app.post("/api/accounts/<int:account_id>/check")
+    def check(account_id):
+        acct = get_account(account_id)
+
+        def run(job):
+            st = accounts.check(led, acct)
+            job.message = st.message
+            if not st.ok:
+                job.state = "failed"
+
+        return jsonify(worker.submit("check", f"Checking {acct.label}", run, acct.id).view())
+
+    @app.post("/api/accounts/<int:account_id>/signin")
+    def signin(account_id):
+        acct = get_account(account_id)
+
+        def run(job):
+            if not acct.chrome_profile:
+                job.lines.append("A Chrome window is opening. Sign in to Google there.")
+            st = accounts.sign_in_again(led, acct)
+            job.message = st.message
+            if not st.ok:
+                job.state = "failed"
+
+        return jsonify(worker.submit("signin", f"Signing in {acct.label}", run, acct.id).view())
+
+    @app.post("/api/accounts/<int:account_id>/label")
+    def label(account_id):
+        try:
+            accounts.set_label(led, get_account(account_id), str(body().get("label", "")))
+        except accounts.AccountError as exc:
+            return jsonify(error=str(exc)), 400
+        return jsonify(ok=True)
+
+    @app.post("/api/accounts/<int:account_id>/output")
+    def output(account_id):
+        try:
+            path = accounts.set_output_dir(led, get_account(account_id), str(body().get("path", "")))
+        except accounts.AccountError as exc:
+            return jsonify(error=str(exc)), 400
+        return jsonify(ok=True, path=str(path))
+
+    # ------------------------------------------------------------ notebooks
+
+    @app.post("/api/accounts/<int:account_id>/refresh")
+    def refresh(account_id):
+        acct = get_account(account_id)
+
+        def run(job):
+            st = accounts.check(led, acct)
+            if not st.ok:
+                job.state, job.message = "failed", st.message
+                return
+            library[acct.id] = adapter.list_library(acct.profile_name, job.lines.append)
+            n = sum(len(o) for _nb, o in library[acct.id])
+            job.message = f"{len(library[acct.id])} notebooks, {n} audio overviews."
+
+        return jsonify(worker.submit("refresh", f"Reading {acct.label}", run, acct.id).view())
+
+    @app.get("/api/accounts/<int:account_id>/library")
+    def get_library(account_id):
+        get_account(account_id)
+        if account_id not in library:
+            return jsonify(loaded=False, notebooks=[])
+        out = []
+        for nb, ovs in library[account_id]:
+            items = []
+            for ov in ovs:
+                row = led.harvest(ov.artifact_id)
+                items.append(
+                    {
+                        "artifact_id": ov.artifact_id,
+                        "title": ov.title,
+                        "created_at": ov.created_at,
+                        "status": harvest.overview_status(led, ov),
+                        "saved_path": row.saved_path if row else None,
+                    }
+                )
+            out.append({"id": nb.id, "title": nb.title, "created_at": nb.created_at, "overviews": items})
+        return jsonify(loaded=True, notebooks=out)
+
+    @app.post("/api/accounts/<int:account_id>/harvest")
+    def do_harvest(account_id):
+        acct = get_account(account_id)
+        data = body()
+        if not acct.output_dir or not Path(acct.output_dir).is_dir():
+            return jsonify(error="Choose an output folder first."), 400
+        if account_id not in library:
+            return jsonify(error="Refresh the notebook list first."), 400
+        all_ovs = [ov for _nb, ovs in library[account_id] for ov in ovs]
+        wanted = set(data.get("artifact_ids") or [])
+        redo = set(data.get("redownload") or [])
+        if data.get("all_new"):
+            chosen = [ov for ov in all_ovs if harvest.overview_status(led, ov) == harvest.NEW]
+        else:
+            chosen = [ov for ov in all_ovs if ov.artifact_id in wanted | redo]
+        if not chosen:
+            return jsonify(error="Nothing to harvest."), 400
+
+        def run(job):
+            for ov in chosen:
+                job.items[ov.artifact_id] = {"title": ov.title, "step": "Waiting", "outcome": None}
+
+            def on_item(i, n, ov, msg):
+                job.items[ov.artifact_id]["step"] = msg
+                job.lines.append(f"[{i + 1}/{n}] {ov.title}: {msg}")
+
+            results = harvest.harvest_many(
+                led,
+                led.account(acct.id),
+                chosen,
+                Path(acct.output_dir),
+                redownload_ids=redo,
+                on_item=on_item,
+            )
+            for r in results:
+                job.items[r.artifact_id].update(outcome=r.outcome, step=r.message)
+            saved = sum(r.outcome == "saved" for r in results)
+            failed = sum(r.outcome == "failed" for r in results)
+            job.message = f"Saved {saved}, skipped {len(results) - saved - failed}, failed {failed}."
+            if failed:
+                job.state = "failed"
+
+        title = f"Harvesting {len(chosen)} for {acct.label}"
+        return jsonify(worker.submit("harvest", title, run, acct.id).view())
+
+    # ------------------------------------------------------------ history and folders
+
+    @app.get("/api/history")
+    def history():
+        account_id = request.args.get("account", type=int)
+        labels = {a.id: a.label for a in led.accounts()}
+        return jsonify(
+            [
+                {
+                    "account": labels.get(h.account_id, "?"),
+                    "title": h.overview_title,
+                    "notebook": h.notebook_title,
+                    "saved_at": h.saved_at,
+                    "path": h.saved_path,
+                    "folder": str(Path(h.saved_path).parent),
+                    "duration_s": h.duration_s,
+                    "size_bytes": h.size_bytes,
+                    "present": h.file_present,
+                }
+                for h in led.harvests(account_id)
+            ]
+        )
+
+    def allowed_folders() -> set[str]:
+        """Folders the page may open: account output folders and folders of saved files."""
+        out = {a.output_dir for a in led.accounts() if a.output_dir}
+        out |= {str(Path(h.saved_path).parent) for h in led.harvests()}
+        return out
+
+    @app.post("/api/open")
+    def open_folder():
+        path = str(body().get("path", ""))
+        if path not in allowed_folders() or not Path(path).is_dir():
+            return jsonify(error="That folder cannot be opened."), 400
+        open_in_file_manager(Path(path))
+        return jsonify(ok=True)
+
+    @app.get("/api/browse")
+    def browse():
+        raw = request.args.get("path") or ""
+        if not raw:
+            if sys.platform == "win32":
+                drives = [f"{d}:\\" for d in string.ascii_uppercase if Path(f"{d}:\\").exists()]
+                return jsonify(path="", parent=None, dirs=drives, home=str(Path.home()))
+            raw = str(Path.home())
+        p = Path(raw).expanduser()
+        if not p.is_dir():
+            return jsonify(error="That folder does not exist."), 400
+        try:
+            dirs = sorted(
+                (str(c) for c in p.iterdir() if c.is_dir() and not c.name.startswith(".")),
+                key=str.lower,
+            )
+        except PermissionError:
+            dirs = []
+        parent = str(p.parent) if p.parent != p else ("" if sys.platform == "win32" else None)
+        return jsonify(path=str(p), parent=parent, dirs=dirs, home=str(Path.home()))
+
+    app.config["worker"] = worker
+    app.config["library"] = library
+    return app
+
+
+def open_in_file_manager(path: Path) -> None:
+    """Show a folder in Finder or Explorer."""
+    if sys.platform == "win32":
+        os.startfile(str(path))  # noqa: S606
+    elif sys.platform == "darwin":
+        subprocess.run(["open", str(path)], check=False)
+    else:
+        subprocess.run(["xdg-open", str(path)], check=False)
+
+
+def _free_port() -> int:
+    """Ask the OS for a free local port."""
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def serve(open_browser: bool = True) -> int:
+    """Start the local server and open the page in the default browser."""
+    from werkzeug.serving import make_server
+
+    token = secrets.token_urlsafe(24)
+    port = int(os.environ.get("NLH_PORT") or _free_port())
+    app = create_app(token)
+    server = make_server("127.0.0.1", port, app, threaded=True)
+    url = f"http://127.0.0.1:{port}/?t={token}"
+    log.info("server started on 127.0.0.1:%d", port)
+    print(f"{APP_NAME} is running. If the page did not open, use the address in your browser:")
+    print(url)
+    print("Close this window (or press Ctrl+C) to stop.")
+    if open_browser:
+        threading.Timer(0.8, lambda: webbrowser.open(url)).start()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    return 0
