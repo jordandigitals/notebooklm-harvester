@@ -431,9 +431,9 @@ def serve(open_browser: bool = True) -> int:
     server = make_server("127.0.0.1", port, app, threaded=True)
     url = f"http://127.0.0.1:{port}/?t={token}"
     log.info("server started on 127.0.0.1:%d", port)
-    print(f"{APP_NAME} is running. If the page did not open, use the address in your browser:")
-    print(url)
-    print("Close this window (or press Ctrl+C) to stop.")
+    print(f"{APP_NAME} is running. If the page did not open, use the address in your browser:", flush=True)
+    print(url, flush=True)
+    print("Close this window (or press Ctrl+C) to stop.", flush=True)
     if open_browser:
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()
     try:
