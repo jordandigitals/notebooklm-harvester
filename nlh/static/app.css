@@ -156,8 +156,25 @@ h3 { font-size: 0.95rem; margin-top: 14px; }
 .job { border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin: 10px 0; background: var(--bg); }
 .job-head { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
 .job-message { margin: 6px 0; }
-.job-items li { display: flex; justify-content: space-between; gap: 8px; padding: 4px 0; border-top: 1px solid var(--line); font-size: 0.9rem; }
-.job-items li span:first-child { overflow-wrap: anywhere; }
+.job-item { padding: 6px 0; border-top: 1px solid var(--line); font-size: 0.9rem; }
+.job-item-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.job-item-head span:first-child { overflow-wrap: anywhere; }
+.job-item-head span:last-child { white-space: nowrap; }
+
+/* Progress bars: width comes from --pct; unknown size shows moving stripes. */
+.bar { position: relative; height: 10px; border-radius: 999px; background: var(--line); overflow: hidden; margin: 6px 0; }
+.bar-thin { height: 6px; margin: 0; }
+.bar-fill { display: block; height: 100%; width: var(--pct, 0%); background: var(--accent); border-radius: inherit; transition: width 0.6s ease; }
+.bar-failed .bar-fill { background: var(--bad); }
+.bar-indeterminate .bar-fill {
+  width: 100%;
+  background-image: repeating-linear-gradient(-45deg, var(--accent) 0 12px, transparent 12px 24px);
+  background-color: var(--soft-info);
+  background-size: 34px 100%;
+  animation: bar-move 0.9s linear infinite;
+}
+@keyframes bar-move { from { background-position: 0 0; } to { background-position: 34px 0; } }
+@media (prefers-reduced-motion: reduce) { .bar-indeterminate .bar-fill { animation: none; } .bar-fill { transition: none; } }
 
 .notebook { border-top: 1px solid var(--line); padding: 10px 0; }
 .notebook-title { font-weight: 600; overflow-wrap: anywhere; }

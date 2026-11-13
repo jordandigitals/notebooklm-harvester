@@ -38,3 +38,12 @@ def test_probe_rejects_garbage(tmp_path):
     bad.write_bytes(b"not audio at all" * 100)
     with pytest.raises(media.MediaError):
         media.probe(bad)
+
+
+@needs_ffmpeg
+def test_convert_reports_progress(sample_m4a, tmp_path):
+    seen = []
+    tags = media.build_tags("T", "N", None, "nb", "a")
+    src = media.probe(sample_m4a)
+    media.convert_to_mp3(sample_m4a, tmp_path / "o.mp3", tags, duration=src.duration, on_progress=seen.append)
+    assert seen and all(0 <= f <= 1 for f in seen) and seen[-1] > 0.9

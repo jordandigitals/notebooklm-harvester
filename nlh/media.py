@@ -6,6 +6,7 @@ import hashlib
 import json
 import shutil
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -86,8 +87,18 @@ def build_tags(
     }
 
 
-def convert_to_mp3(src: Path, dst: Path, tags: dict[str, str]) -> None:
-    """Convert to MP3 with libmp3lame VBR -q:a 4, keeping channels and sample rate (D-012)."""
+def convert_to_mp3(
+    src: Path,
+    dst: Path,
+    tags: dict[str, str],
+    duration: float | None = None,
+    on_progress: Callable[[float], None] | None = None,
+) -> None:
+    """Convert to MP3 with libmp3lame VBR -q:a 4, keeping channels and sample rate (D-012).
+
+    With duration and on_progress, reports the fraction done (0 to 1) from ffmpeg's
+    own progress output.
+    """
     cmd = [
         "ffmpeg",
         "-v",
@@ -109,8 +120,18 @@ def convert_to_mp3(src: Path, dst: Path, tags: dict[str, str]) -> None:
     for key, value in tags.items():
         if value:
             cmd += ["-metadata", f"{key}={value}"]
-    cmd += ["-f", "mp3", str(dst)]
-    proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
+    cmd += ["-progress", "pipe:1", "-nostats", "-f", "mp3", str(dst)]
+    proc = subprocess.Popen(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, encoding="utf-8"
+    )
+    for line in proc.stdout:
+        if on_progress and duration and line.startswith("out_time_us="):
+            try:
+                done = int(line.split("=", 1)[1]) / 1_000_000
+            except ValueError:
+                continue
+            on_progress(max(0.0, min(1.0, done / duration)))
+    proc.wait()
     if proc.returncode != 0 or not dst.exists():
         raise MediaError("Converting the audio to MP3 failed.")
 

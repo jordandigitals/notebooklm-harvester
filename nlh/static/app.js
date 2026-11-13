@@ -223,7 +223,7 @@ async function pollJob() {
   const job = await api(`/api/jobs/${state.jobId}`);
   renderJob(job);
   if (job.state === "queued" || job.state === "running") {
-    setTimeout(pollJob, 1000);
+    setTimeout(pollJob, 700);
     return;
   }
   state.jobId = null;
@@ -241,13 +241,43 @@ function renderJob(job) {
   st.textContent = STATUS_TEXT[job.state] || job.state;
   const last = job.lines.length ? job.lines[job.lines.length - 1] : "";
   $("job-message").textContent = job.message || last;
+  const overall = $("job-overall");
+  const active = job.state === "queued" || job.state === "running";
+  if (job.kind === "harvest") {
+    show(overall, true);
+    setBar(overall, job.pct || 0, false);
+    const done = Object.values(job.items).filter((it) => it.outcome).length;
+    $("job-message").textContent = job.message || `${done} of ${job.total} done. ${Math.round((job.pct || 0) * 100)}% overall.`;
+  } else {
+    // Sign-ins, checks and listing have no measurable size: show a moving bar while working.
+    show(overall, active);
+    setBar(overall, null, true);
+  }
   const list = $("job-items");
   list.replaceChildren();
-  for (const item of Object.values(job.items)) {
-    const li = el("li");
-    li.append(el("span", "", item.title), el("span", "muted", item.step));
+  for (const [id, item] of Object.entries(job.items)) {
+    const li = el("li", "job-item");
+    const head = el("div", "job-item-head");
+    head.append(el("span", "", item.title), el("span", "muted", item.step));
+    const bar = el("div", "bar bar-thin");
+    bar.setAttribute("role", "progressbar");
+    bar.append(el("span", "bar-fill"));
+    const working = active && job.current === id && !item.outcome;
+    setBar(bar, item.outcome ? 1 : item.pct, working && (item.pct === null || item.pct === undefined));
+    if (item.outcome === "failed") bar.classList.add("bar-failed");
+    li.append(head, bar);
     list.append(li);
   }
+}
+
+/** Set a progress bar: a fraction 0 to 1, or a moving stripe when the size is unknown. */
+function setBar(bar, pct, indeterminate) {
+  bar.classList.toggle("bar-indeterminate", !!indeterminate);
+  const fill = bar.querySelector(".bar-fill");
+  const value = indeterminate ? 100 : Math.round((pct || 0) * 100);
+  fill.style.setProperty("--pct", `${value}%`);
+  if (indeterminate) bar.removeAttribute("aria-valuenow");
+  else bar.setAttribute("aria-valuenow", String(value));
 }
 
 // ------------------------------------------------------------ folder picker
