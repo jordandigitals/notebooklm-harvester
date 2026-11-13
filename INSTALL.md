@@ -40,7 +40,7 @@ The page address contains a one-time key, so only you can use it. Each start mak
 3. **Refresh notebooks.** The app reads your notebooks and shows each audio overview as New, Saved, Saved but file missing, or Not finished.
 4. **Harvest all new**, or tick some overviews and choose **Harvest selected**.
 
-Files are named after the overview's own title, for example `How WhatsApp AI Automates Viral Referrals.mp3`. A name already in the folder gets ` (2)`; the app never overwrites or deletes a file. Harvesting again downloads nothing that was already saved.
+Each notebook gets its own subfolder, named after the notebook, and every overview from that notebook goes into it (the folder is made once and reused). Files are named after the overview's own title, for example `The Viral Referral Method/How WhatsApp AI Automates Viral Referrals.mp3`. Files saved before this change stay where they are; the app never moves files. If you rename a notebook in NotebookLM, its next overviews go into a folder with the new name. A name already in the folder gets ` (2)`; the app never overwrites or deletes a file. Harvesting again downloads nothing that was already saved.
 
 If an account shows **Sign in again**, press it. For accounts added from Chrome this re-reads Chrome's sign-in (Chrome rotates its Google cookies, so a copied sign-in goes stale after some hours).
 

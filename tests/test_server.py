@@ -117,8 +117,8 @@ def test_refresh_then_harvest_all_new_via_api(client, ledger, tmp_path, sample_m
 
     j = _wait(c, c.post(f"/api/accounts/{a.id}/harvest", json={"all_new": True}, headers=H).get_json()["id"])
     assert j["state"] == "done" and j["message"].startswith("Saved 1")
-    assert (out / "First Overview.mp3").exists()
-    assert ledger.harvest("a1").saved_path == str(out / "First Overview.mp3")
+    assert (out / "Notebook" / "First Overview.mp3").exists()
+    assert ledger.harvest("a1").saved_path == str(out / "Notebook" / "First Overview.mp3")
     lib = c.get(f"/api/accounts/{a.id}/library", headers=H).get_json()
     assert lib["notebooks"][0]["overviews"][0]["status"] == harvest.SAVED
     # Second "all new" finds nothing to do.

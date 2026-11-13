@@ -11,6 +11,7 @@ _RESERVED = (
     {"CON", "PRN", "AUX", "NUL"} | {f"COM{i}" for i in range(1, 10)} | {f"LPT{i}" for i in range(1, 10)}
 )
 MAX_STEM = 150
+MAX_FOLDER = 80
 
 
 def safe_stem(title: str) -> str:
@@ -23,6 +24,18 @@ def safe_stem(title: str) -> str:
     if text.split(".")[0].upper() in _RESERVED:
         text = f"{text} (file)"
     return text[:MAX_STEM].rstrip(". ")
+
+
+def notebook_folder(out_dir: Path, notebook_title: str) -> Path:
+    """Subfolder for a notebook's overviews (D-019): <output>/<notebook title>/.
+
+    Same character rules as file names, capped shorter to keep full paths well under
+    the Windows path limit. Created if missing; an existing folder is reused.
+    """
+    name = safe_stem(notebook_title)[:MAX_FOLDER].rstrip(". ") or "Notebook"
+    folder = Path(out_dir) / name
+    folder.mkdir(exist_ok=True)
+    return folder
 
 
 def unique_path(folder: Path, title: str, ext: str = ".mp3") -> Path:

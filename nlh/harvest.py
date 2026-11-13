@@ -141,7 +141,7 @@ def harvest_one(
         digest = media.sha256(mp3)
 
         step("Saving", 0.97)
-        final = naming.unique_path(out_dir, ov.title)
+        final = naming.unique_path(naming.notebook_folder(out_dir, ov.notebook_title), ov.title)
         part = final.with_name(final.name + ".part")
         shutil.copyfile(mp3, part)
         if media.sha256(part) != digest:
@@ -249,7 +249,8 @@ def scan_folder(
     went missing is pointed at the found file. Everything else is ignored.
     """
     result = ScanResult()
-    files = sorted(p for p in Path(folder).iterdir() if p.is_file() and p.suffix.lower() == ".mp3")
+    # Includes notebook subfolders (D-019) and files saved before subfolders existed.
+    files = sorted(p for p in Path(folder).rglob("*") if p.is_file() and p.suffix.lower() == ".mp3")
     for i, path in enumerate(files):
         if on_step:
             on_step(f"Checking file {i + 1} of {len(files)}")
