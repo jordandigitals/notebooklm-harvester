@@ -195,3 +195,50 @@ def test_windows_too_deep_folder_refused_cleanly(ledger, tmp_path, monkeypatch):
     assert r.outcome == "failed" and r.message == naming.TOO_LONG_MESSAGE
     assert calls == [] and list(out.iterdir()) == []
     assert ledger.harvest("art-1") is None
+
+
+def test_place_without_hard_links_never_overwrites(tmp_path, monkeypatch):
+    """Folders that cannot hard-link get an exclusive-create copy; an existing file is untouched."""
+
+    def no_links(src, dst):
+        raise OSError("hard links not supported")
+
+    monkeypatch.setattr(harvest.os, "link", no_links)
+    part, final = tmp_path / "a.mp3.part", tmp_path / "a.mp3"
+    part.write_bytes(b"new audio")
+    harvest._place(part, final)
+    assert final.read_bytes() == b"new audio" and not part.exists()
+
+    part.write_bytes(b"newer audio")
+    final.write_bytes(b"saved before")
+    original_exists = final.exists
+
+    # The exists() check passes (a file appears right after it): the copy must still refuse.
+    monkeypatch.setattr(type(final), "exists", lambda self: False if self == final else original_exists())
+    try:
+        harvest._place(part, final)
+        raise AssertionError("an existing file was overwritten")
+    except FileExistsError:
+        pass
+    monkeypatch.undo()
+    assert final.read_bytes() == b"saved before"
+
+
+@needs_ffmpeg
+def test_locked_part_file_does_not_fail_a_finished_save(ledger, tmp_path, sample_m4a, monkeypatch):
+    """Antivirus or a sync tool holding the .part must not lose a save that already landed."""
+    acct, out = _setup(ledger, tmp_path)
+    real_unlink = type(out).unlink
+
+    def unlink(self, missing_ok=False):
+        if self.name.endswith(".part"):
+            raise PermissionError("in use")
+        return real_unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(type(out), "unlink", unlink)
+    r = harvest.harvest_one(ledger, acct, _ov(), out, downloader=FakeDownloader(sample_m4a))
+    assert r.outcome == "saved", r.message
+    row = ledger.harvest("art-1")
+    f = out / "My Notebook" / "How AI Works.mp3"
+    assert row.saved_path == str(f) and row.size_bytes == f.stat().st_size
+    assert row.sha256 == media.sha256(f)

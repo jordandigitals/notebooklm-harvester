@@ -279,12 +279,39 @@ def _cli_env() -> dict[str, str]:
 LIBRARY_CLI_FLAG = "--notebooklm-cli"
 
 
+# Read-only toward NotebookLM (ARCH-RULES 1): the only library commands the app runs.
+ALLOWED_CLI_COMMANDS = frozenset({"auth", "login"})
+_CLI_OPTIONS_WITH_VALUE = frozenset({"--profile", "-p", "--storage", "--notebook", "-n"})
+
+
+def _cli_command(args: list[str]) -> str | None:
+    """The library sub-command in args, skipping global options and their values."""
+    skip = False
+    for arg in args:
+        if skip:
+            skip = False
+            continue
+        if arg in _CLI_OPTIONS_WITH_VALUE:
+            skip = True
+            continue
+        if arg.startswith("-"):
+            continue
+        return arg
+    return None
+
+
 def run_library_cli(args: list[str]) -> None:
     """Run the library's own command line in this process.
 
     Used by the packaged app sub-command and by "python -m nlh.adapter" on Windows.
     On Windows the Chrome cookie fix is applied first (see _windows_chrome_cookie_fix).
     """
+    command = _cli_command(args)
+    if command not in ALLOWED_CLI_COMMANDS:
+        print(
+            f"Refused: this app runs only {sorted(ALLOWED_CLI_COMMANDS)}, not {command!r}.", file=sys.stderr
+        )
+        raise SystemExit(2)
     if sys.platform == "win32":
         _windows_chrome_cookie_fix()
     from notebooklm.notebooklm_cli import main as library_main
@@ -396,10 +423,26 @@ def login_from_chrome(
     return _login_result(proc, profile_name, verify)
 
 
-GOOGLE_SIGNIN_URL = "https://accounts.google.com/ServiceLogin?continue=https%3A%2F%2Fnotebooklm.google.com%2F"
+GOOGLE_SIGNIN_BASE = "https://accounts.google.com/ServiceLogin?continue="
 # Google sets these only after a real sign-in. Only cookie NAMES are looked at, never values.
 SIGNED_IN_COOKIE_NAMES = frozenset({"SID", "__Secure-1PSID"})
-NOTEBOOKLM_URL = "https://notebooklm.google.com/"
+
+
+def notebooklm_url() -> str:
+    """NotebookLM's address as the pinned library sees it (it follows Google's moves and
+    NOTEBOOKLM_BASE_URL), so the app never hard-codes an old host."""
+    from notebooklm.config import get_base_url
+
+    return get_base_url().rstrip("/") + "/"
+
+
+def google_signin_url() -> str:
+    """Google's sign-in page, continuing to NotebookLM."""
+    from urllib.parse import quote
+
+    return GOOGLE_SIGNIN_BASE + quote(notebooklm_url(), safe="")
+
+
 NUDGE_AFTER_S = 3  # grace after Google's sign-in cookie appears before taking the window to NotebookLM
 NUDGE_EVERY_S = 15
 
@@ -438,9 +481,19 @@ def _google_signin_window(profile_name: str, timeout_s: int) -> bool:
             ignore_default_args=["--enable-automation"],
         )
         last_site, signed_since, nudged_at = "", None, 0.0
+
+        def sid_marks() -> set:
+            """Name and expiry of Google's sign-in cookies (never values)."""
+            return {
+                (c["name"], c.get("expires"))
+                for c in ctx.cookies("https://accounts.google.com")
+                if c["name"] in SIGNED_IN_COOKIE_NAMES
+            }
+
         try:
+            at_launch = sid_marks()  # cookies left from an earlier sign-in may be stale
             page = ctx.pages[0] if ctx.pages else ctx.new_page()
-            page.goto(GOOGLE_SIGNIN_URL)
+            page.goto(google_signin_url())
             while time.monotonic() < deadline:
                 pages = list(ctx.pages)  # one snapshot: tabs can close between reads
                 if not pages:
@@ -449,17 +502,20 @@ def _google_signin_window(profile_name: str, timeout_s: int) -> bool:
                     )
                     return False
                 last_site = urlparse(pages[-1].url).hostname or ""
-                names = {c["name"] for c in ctx.cookies("https://accounts.google.com")}
-                if names & SIGNED_IN_COOKIE_NAMES:
-                    signed_since = signed_since or time.monotonic()
+                marks = sid_marks()
+                if marks:
                     if any(url_matches_base_host(pg.url) for pg in pages):
-                        return True
+                        return True  # Google sent the window to NotebookLM itself
+                    if marks == at_launch:
+                        time.sleep(1)  # only old cookies: wait for the person to sign in
+                        continue
+                    signed_since = signed_since or time.monotonic()
                     now_s = time.monotonic()
                     if now_s - signed_since >= NUDGE_AFTER_S and now_s - nudged_at >= NUDGE_EVERY_S:
                         nudged_at = now_s
                         log.info("signed in but stopped on %s; opening NotebookLM", last_site)
                         try:
-                            pages[-1].goto(NOTEBOOKLM_URL, wait_until="domcontentloaded", timeout=30000)
+                            pages[-1].goto(notebooklm_url(), wait_until="domcontentloaded", timeout=30000)
                         except Exception as exc:  # a slow page; the next round checks again
                             log.info("opening NotebookLM: %s", type(exc).__name__)
                 time.sleep(1)

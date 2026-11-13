@@ -102,3 +102,14 @@ def test_mac_and_linux_names_unchanged(tmp_path, monkeypatch, platform):
     out = _deep(tmp_path, monkeypatch, 200)
     folder = notebook_folder(out, "N" * 126)
     assert unique_path(folder, "O" * 185).stem == "O" * naming.MAX_STEM
+
+
+def test_windows_cap_counts_utf16_units(tmp_path, monkeypatch):
+    """Emoji count twice toward Windows' limit; the cut never splits one."""
+    monkeypatch.setattr(paths, "is_windows", lambda: True)
+    out = _deep(tmp_path, monkeypatch, 100)
+    folder = notebook_folder(out, "N" * 80)
+    path = unique_path(folder, "\U0001f3a7" * 120)  # headphones emoji, 2 UTF-16 units each
+    full = os.path.abspath(path)
+    assert naming._u16(full) + naming.SUFFIX_ROOM < naming.WIN_MAX_PATH
+    assert set(path.stem) == {"\U0001f3a7"}  # whole emoji only
