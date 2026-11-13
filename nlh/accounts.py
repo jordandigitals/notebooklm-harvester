@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import os
 import re
-import sys
 import threading
 from pathlib import Path
 
@@ -110,7 +109,7 @@ def uses_own_signin(acct: Account) -> bool:
     """
     if not acct.chrome_profile:
         return True
-    return sys.platform == "win32" and adapter.interactive_available()
+    return paths.is_windows() and adapter.interactive_available()
 
 
 def sign_in_again(ledger: Ledger, acct: Account) -> SessionStatus:
