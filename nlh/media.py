@@ -50,6 +50,7 @@ def probe(path: Path) -> Probe:
             "a:0",
             str(path),
         ],
+        stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -101,6 +102,7 @@ def convert_to_mp3(
     """
     cmd = [
         "ffmpeg",
+        "-nostdin",
         "-v",
         "error",
         "-y",
@@ -122,7 +124,12 @@ def convert_to_mp3(
             cmd += ["-metadata", f"{key}={value}"]
     cmd += ["-progress", "pipe:1", "-nostats", "-f", "mp3", str(dst)]
     proc = subprocess.Popen(
-        cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, encoding="utf-8"
+        cmd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        encoding="utf-8",
     )
     for line in proc.stdout:
         if on_progress and duration and line.startswith("out_time_us="):
