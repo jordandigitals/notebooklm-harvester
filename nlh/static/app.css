@@ -187,3 +187,8 @@ h3 { font-size: 0.95rem; margin-top: 14px; }
   .layout > .main-panel { grid-column: 2; grid-row: 1; }
   .accounts-panel { position: sticky; top: 12px; }
 }
+
+/* Fixes after the first screenshot review. */
+.label-edit .input { flex: none; }
+.account > span:first-child { flex: 1 1 auto; min-width: 0; }
+.account-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; overflow-wrap: normal; }

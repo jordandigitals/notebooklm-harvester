@@ -108,7 +108,7 @@ function renderDetail() {
   if (!a) return;
   if (document.activeElement !== $("acct-label")) $("acct-label").value = a.label;
   $("acct-email").textContent = [a.email, a.chrome_profile ? `Chrome ${a.chrome_profile}` : "Signed in directly"]
-    .filter(Boolean).join(" . ");
+    .filter(Boolean).join(" · ");
   const st = $("acct-status");
   st.className = `pill pill-${a.status}`;
   st.textContent = STATUS_TEXT[a.status] || a.status;
@@ -317,7 +317,7 @@ async function loadHistory() {
     const item = el("div", "history-item");
     item.append(el("div", "history-title", r.title));
     item.append(el("div", "muted",
-      `${r.notebook} . ${r.account} . ${duration(r.duration_s)} . ${(r.size_bytes / 1e6).toFixed(1)} MB . saved ${new Date(r.saved_at).toLocaleString()}`));
+      `${r.notebook} · ${r.account} · ${duration(r.duration_s)} · ${(r.size_bytes / 1e6).toFixed(1)} MB · saved ${new Date(r.saved_at).toLocaleString()}`));
     item.append(el("div", "history-path", r.path));
     const actions = el("div", "row");
     if (!r.present) actions.append(pill("saved_but_missing"));
