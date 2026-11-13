@@ -7,6 +7,7 @@ job at a time, so there is never more than one download or sign-in in flight.
 from __future__ import annotations
 
 import hmac
+import json
 import os
 import queue
 import secrets
@@ -28,6 +29,14 @@ from nlh.log import get_logger
 
 log = get_logger()
 STATIC = Path(__file__).parent / "static"
+
+STALE_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>{{APP_NAME}}</title>
+<link rel="stylesheet" href="/static/app.css"></head><body><main class="layout">
+<section class="panel"><h1 class="brand">{{APP_NAME}}</h1>
+<p>This page was opened without the app's private key, or with an old one.</p>
+<p>Close this tab and use the tab the app opened, or start the app again
+(double-click the launcher). It opens the right page for you.</p></section></main></body></html>"""
 
 
 # ---------------------------------------------------------------- jobs
@@ -120,9 +129,13 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
             abort(403)
         if request.path.startswith("/static/"):
             return None
+        if request.path == "/favicon.ico":
+            return "", 204
         given = request.args.get("t") or request.headers.get("X-NLH-Token") or ""
         if not hmac.compare_digest(given, token):
-            abort(403)
+            if request.path.startswith("/api/"):
+                return jsonify(error="This page's key is out of date. Reopen the app's page."), 403
+            return STALE_PAGE.replace("{{APP_NAME}}", APP_NAME), 403
         return None
 
     @app.after_request
@@ -470,12 +483,40 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
+def _port_free(port: int) -> bool:
+    """True if nothing is listening on this local port."""
+    with socket.socket() as s:
+        try:
+            s.bind(("127.0.0.1", port))
+            return True
+        except OSError:
+            return False
+
+
+def _server_settings() -> tuple[int, str]:
+    """Port and page key, kept in the app home (owner-only) so open tabs survive a restart."""
+    settings = paths.app_home() / "server.json"
+    data = {}
+    if settings.exists():
+        try:
+            data = json.loads(settings.read_text(encoding="utf-8"))
+        except ValueError:
+            data = {}
+    token = data.get("token") or secrets.token_urlsafe(24)
+    port = int(os.environ.get("NLH_PORT") or data.get("port") or _free_port())
+    if not _port_free(port):
+        port = _free_port()
+    settings.write_text(json.dumps({"port": port, "token": token}), encoding="utf-8")
+    if sys.platform != "win32":
+        os.chmod(settings, 0o600)
+    return port, token
+
+
 def serve(open_browser: bool = True) -> int:
     """Start the local server and open the page in the default browser."""
     from werkzeug.serving import make_server
 
-    token = secrets.token_urlsafe(24)
-    port = int(os.environ.get("NLH_PORT") or _free_port())
+    port, token = _server_settings()
     app = create_app(token)
     server = make_server("127.0.0.1", port, app, threaded=True)
     url = f"http://127.0.0.1:{port}/?t={token}"

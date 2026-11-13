@@ -144,3 +144,19 @@ def test_make_folder(client, tmp_path):
         == 400
     )
     assert not (tmp_path / "a").exists()
+
+
+def test_stale_key_gets_explanation_page(client):
+    _, c = client
+    r = c.get("/?t=old-key")
+    assert r.status_code == 403 and b"old one" in r.data
+    assert c.get("/favicon.ico").status_code == 204
+    assert c.get("/api/state").get_json()["error"].startswith("This page's key")
+
+
+def test_server_settings_persist(home, monkeypatch):
+    monkeypatch.delenv("NLH_PORT", raising=False)
+    p1, t1 = server._server_settings()
+    p2, t2 = server._server_settings()
+    assert (p1, t1) == (p2, t2)
+    assert oct((home / "server.json").stat().st_mode & 0o777) in ("0o600",) or server.sys.platform == "win32"
