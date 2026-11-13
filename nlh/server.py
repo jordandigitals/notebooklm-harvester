@@ -22,7 +22,7 @@ from pathlib import Path
 
 from flask import Flask, abort, jsonify, request, send_from_directory
 
-from nlh import APP_NAME, __version__, accounts, adapter, harvest, media
+from nlh import APP_NAME, __version__, accounts, adapter, harvest, media, naming
 from nlh.ledger import Ledger
 from nlh.log import get_logger
 
@@ -398,6 +398,26 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
             dirs = []
         parent = str(p.parent) if p.parent != p else ("" if sys.platform == "win32" else None)
         return jsonify(path=str(p), parent=parent, dirs=dirs, home=str(Path.home()))
+
+    @app.post("/api/mkdir")
+    def make_folder():
+        """Create a new folder inside the folder being browsed (folder picker)."""
+        data = body()
+        parent = Path(str(data.get("parent", ""))).expanduser()
+        name = str(data.get("name", "")).strip()
+        if not parent.is_dir():
+            return jsonify(error="Open a folder first, then make the new folder inside it."), 400
+        if not name or name in (".", "..") or naming.safe_stem(name) != name:
+            return jsonify(error='Use a folder name without / \\ : * ? " < > | characters.'), 400
+        target = parent / name
+        if target.exists():
+            return jsonify(error="A folder with that name already exists here."), 400
+        try:
+            target.mkdir()
+        except OSError:
+            return jsonify(error="Could not make the folder here."), 400
+        log.info("made folder %s", target)
+        return jsonify(ok=True, path=str(target))
 
     app.config["worker"] = worker
     app.config["library"] = library

@@ -127,3 +127,20 @@ def test_refresh_then_harvest_all_new_via_api(client, ledger, tmp_path, sample_m
     hist = c.get("/api/history", headers=H).get_json()
     assert len(hist) == 1 and hist[0]["present"]
     assert c.post("/api/open", json={"path": "/definitely/not/allowed"}, headers=H).status_code == 400
+
+
+def test_make_folder(client, tmp_path):
+    _, c = client
+    r = c.post("/api/mkdir", json={"parent": str(tmp_path), "name": "Audio Overviews"}, headers=H)
+    assert r.status_code == 200 and (tmp_path / "Audio Overviews").is_dir()
+    assert (
+        c.post("/api/mkdir", json={"parent": str(tmp_path), "name": "Audio Overviews"}, headers=H).status_code
+        == 400
+    )
+    assert c.post("/api/mkdir", json={"parent": str(tmp_path), "name": "a/b"}, headers=H).status_code == 400
+    assert c.post("/api/mkdir", json={"parent": str(tmp_path), "name": ".."}, headers=H).status_code == 400
+    assert (
+        c.post("/api/mkdir", json={"parent": str(tmp_path / "nope"), "name": "x"}, headers=H).status_code
+        == 400
+    )
+    assert not (tmp_path / "a").exists()
