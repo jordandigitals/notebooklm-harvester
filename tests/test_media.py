@@ -47,3 +47,12 @@ def test_convert_reports_progress(sample_m4a, tmp_path):
     src = media.probe(sample_m4a)
     media.convert_to_mp3(sample_m4a, tmp_path / "o.mp3", tags, duration=src.duration, on_progress=seen.append)
     assert seen and all(0 <= f <= 1 for f in seen) and seen[-1] > 0.9
+
+
+def test_tool_prefers_bundled_copy(tmp_path, monkeypatch):
+    import sys
+
+    exe = "ffmpeg.exe" if sys.platform == "win32" else "ffmpeg"
+    (tmp_path / exe).write_text("")
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    assert media.tool("ffmpeg") == str(tmp_path / exe)

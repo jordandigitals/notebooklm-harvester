@@ -6,6 +6,7 @@ import hashlib
 import json
 import shutil
 import subprocess
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,16 +31,27 @@ class Probe:
     tags: dict
 
 
+def tool(name: str) -> str:
+    """Path of ffmpeg or ffprobe: the copy bundled in a packaged app (D-018), else PATH (D-017)."""
+    exe = name + (".exe" if sys.platform == "win32" else "")
+    bundle = getattr(sys, "_MEIPASS", None)
+    if bundle and (Path(bundle) / exe).exists():
+        return str(Path(bundle) / exe)
+    return shutil.which(name) or name
+
+
 def tools_available() -> dict[str, bool]:
-    """Report whether ffmpeg and ffprobe are on PATH (D-017)."""
-    return {name: shutil.which(name) is not None for name in ("ffmpeg", "ffprobe")}
+    """Report whether ffmpeg and ffprobe can be found."""
+    return {
+        name: Path(tool(name)).exists() or shutil.which(name) is not None for name in ("ffmpeg", "ffprobe")
+    }
 
 
 def probe(path: Path) -> Probe:
     """Read container, codec, duration, channels, sample rate, bitrate and tags."""
     proc = subprocess.run(
         [
-            "ffprobe",
+            tool("ffprobe"),
             "-v",
             "error",
             "-print_format",
@@ -101,7 +113,7 @@ def convert_to_mp3(
     own progress output.
     """
     cmd = [
-        "ffmpeg",
+        tool("ffmpeg"),
         "-nostdin",
         "-v",
         "error",

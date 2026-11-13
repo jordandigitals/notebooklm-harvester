@@ -190,6 +190,7 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
         current = [worker.jobs[j].view() for j in worker.order[-20:]]
         portable = paths.portable_home() is not None and not os.environ.get("NLH_HOME")
         return jsonify(
+            interactive=adapter.interactive_available(),
             portable=portable,
             portable_ack=(paths.app_home() / ".portable-ack").exists(),
             app_name=APP_NAME,
@@ -198,6 +199,16 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
             accounts=[account_view(a) for a in led.accounts()],
             jobs=current,
         )
+
+    @app.post("/api/quit")
+    def quit_app():
+        """Stop the app (a packaged app has no terminal window to close)."""
+        stopper = app.config.get("stop")
+        if worker.busy():
+            return jsonify(error="A job is still running. Wait for it to finish, then quit."), 400
+        if stopper:
+            threading.Timer(0.3, stopper).start()
+        return jsonify(ok=True)
 
     @app.post("/api/portable-ack")
     def portable_ack():
@@ -573,18 +584,55 @@ def _server_settings() -> tuple[int, str]:
     return port, token
 
 
+def _say(message: str) -> None:
+    """Print to the launcher window if there is one (a double-clicked app has none)."""
+    if sys.stdout is not None:
+        try:
+            print(message, flush=True)
+        except OSError:
+            pass
+
+
+def _running_url() -> str | None:
+    """Address of an app instance that is already running for this app home, if any."""
+    import urllib.request
+
+    settings = paths.app_home() / "server.json"
+    if not settings.exists():
+        return None
+    try:
+        cfg = json.loads(settings.read_text(encoding="utf-8"))
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{cfg['port']}/api/state", headers={"X-NLH-Token": cfg["token"]}
+        )
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            if resp.status == 200:
+                return f"http://127.0.0.1:{cfg['port']}/?t={cfg['token']}"
+    except (OSError, ValueError, KeyError):
+        return None
+    return None
+
+
 def serve(open_browser: bool = True) -> int:
     """Start the local server and open the page in the default browser."""
     from werkzeug.serving import make_server
 
+    running = _running_url()
+    if running:
+        # Already running: just show it.
+        _say(f"{APP_NAME} is already running.")
+        if open_browser:
+            webbrowser.open(running)
+        return 0
     port, token = _server_settings()
     app = create_app(token)
     server = make_server("127.0.0.1", port, app, threaded=True)
+    app.config["stop"] = server.shutdown
     url = f"http://127.0.0.1:{port}/?t={token}"
     log.info("server started on 127.0.0.1:%d", port)
-    print(f"{APP_NAME} is running. If the page did not open, use the address in your browser:", flush=True)
-    print(url, flush=True)
-    print("Close this window (or press Ctrl+C) to stop.", flush=True)
+    _say(f"{APP_NAME} is running. If the page did not open, use the address in your browser:")
+    _say(url)
+    _say("Close this window (or press Ctrl+C) to stop, or use Quit on the page.")
     if open_browser:
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()
     try:

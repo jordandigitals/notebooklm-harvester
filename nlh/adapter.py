@@ -273,9 +273,30 @@ def _cli_env() -> dict[str, str]:
     return env
 
 
+LIBRARY_CLI_FLAG = "--notebooklm-cli"
+
+
+def run_library_cli(args: list[str]) -> None:
+    """Run the library's own command line in this process (packaged app sub-command)."""
+    from notebooklm.notebooklm_cli import main as library_main
+
+    sys.argv = ["notebooklm", *args]
+    library_main()
+
+
+def interactive_available() -> bool:
+    """True if the fresh browser sign-in can run (needs Playwright, left out of some builds)."""
+    import importlib.util
+
+    return importlib.util.find_spec("playwright") is not None
+
+
 def _cli(args: list[str], timeout: int) -> subprocess.CompletedProcess:
     """Run the pinned library CLI. Output is captured and never logged raw."""
-    cmd = [sys.executable, "-m", "notebooklm", *args]
+    if getattr(sys, "frozen", False):
+        cmd = [sys.executable, LIBRARY_CLI_FLAG, *args]
+    else:
+        cmd = [sys.executable, "-m", "notebooklm", *args]
     return subprocess.run(
         cmd, env=_cli_env(), capture_output=True, text=True, timeout=timeout, encoding="utf-8"
     )

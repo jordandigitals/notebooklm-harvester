@@ -177,3 +177,18 @@ def test_listing_cached_across_restart(ledger, monkeypatch):
     again = c2.get(f"/api/accounts/{a.id}/library", headers=H).get_json()
     assert again["loaded"] and again["cached_at"]
     assert again["notebooks"][0]["overviews"][0]["title"] == "First"
+
+
+def test_quit_and_state_flags(client):
+    app, c = client
+    stopped = []
+    app.config["stop"] = lambda: stopped.append(1)
+    state = c.get("/api/state", headers=H).get_json()
+    assert "interactive" in state and "portable" in state
+    assert c.post("/api/quit", headers=H).status_code == 200
+    time.sleep(0.6)
+    assert stopped == [1]
+
+
+def test_no_running_instance_without_settings(home):
+    assert server._running_url() is None

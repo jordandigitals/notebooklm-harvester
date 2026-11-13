@@ -4,7 +4,43 @@ NotebookLM Harvester runs on your own computer. It opens a page in your browser 
 local address (127.0.0.1) and saves your NotebookLM Audio Overviews as MP3 files in a
 folder you choose. It only reads from NotebookLM; it never changes anything there.
 
-## What you need
+## Easiest: the ready-made app (no Python or ffmpeg needed)
+
+| | Download | First start |
+|---|---|---|
+| Mac (Intel, also runs on Apple Silicon through Rosetta) | `NotebookLM-Harvester-mac-x86_64-<version>.zip` | Unzip, drag the app to Applications, right-click it and choose Open, then Open again. If macOS still refuses: System Settings, Privacy and Security, Open Anyway. |
+| Windows | `NotebookLM-Harvester-windows-<version>.zip` | Unzip, double-click `NotebookLM Harvester.exe`. If SmartScreen warns: More info, then Run anyway. |
+
+The apps are not signed (signing is deferred), which is why the system asks once.
+On a Mac, the first time the app reads a Chrome sign-in, macOS asks to let it use "Chrome
+Safe Storage" from the keychain: enter your Mac password and choose Always Allow.
+
+The ready-made Mac app adds accounts from Chrome profiles only (the Sign in to Google
+window needs an extra 157 MB component that is left out). To add an account that is not
+in Chrome yet, sign in to it in Chrome first, then add it from the list.
+
+To stop the app, press Quit on the page. Starting it again opens the same page.
+
+## Move to another computer
+
+Sign-ins are never copied between computers; each computer signs in on its own.
+
+1. Install the ready-made app on the new computer (above) and start it.
+2. Add account: pick the Chrome profile on that computer that is signed in to the Google account with your notebooks. Repeat for each account.
+3. Choose folder for each account. To share one library between computers, pick the same synced folder (Google Drive, MEGA or OneDrive) on both.
+4. Press **Scan folder**. The app reads the tags of the MP3s already in that folder and records them, so nothing is downloaded twice.
+5. Refresh notebooks, then harvest.
+
+## Portable mode (optional)
+
+Put an empty folder named `data` and an empty file named `portable` beside the app (beside
+the `.app` on a Mac, beside the `.exe` on Windows). The app then keeps its data, including
+your Google sign-ins, in that `data` folder and shows a warning the first time. Keep such a
+copy only on a drive that is yours alone; never on a shared or easily lost drive.
+
+## Running from source
+
+### What you need
 
 | | Mac | Windows |
 |---|---|---|
@@ -15,7 +51,7 @@ folder you choose. It only reads from NotebookLM; it never changes anything ther
 
 ffmpeg is a required install, not bundled (decision D-017).
 
-## Get the app
+### Get the app
 
 ```
 git clone https://github.com/jordandigitals/notebooklm-harvester.git
@@ -24,7 +60,7 @@ git clone https://github.com/jordandigitals/notebooklm-harvester.git
 Mac: put it anywhere, for example `~/repos/notebooklm-harvester`.
 Windows: for example `C:\repos\notebooklm-harvester`.
 
-## Start it
+### Start it
 
 - Mac: double-click `run-mac.command`. The first time, macOS may ask whether to open it; choose Open. If it says the file is from an unidentified developer, right-click it, choose Open, then Open again.
 - Windows: double-click `run-windows.bat`. If SmartScreen warns, choose More info, then Run anyway.

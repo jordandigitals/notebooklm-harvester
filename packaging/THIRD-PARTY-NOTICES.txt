@@ -1,0 +1,12 @@
+NotebookLM Harvester includes third-party software.
+
+FFmpeg (ffmpeg and ffprobe executables), version 9.0.2
+  Built by Martin Riedl: https://ffmpeg.martin-riedl.de/ (build scripts: https://gitlab.com/martinr92/ffmpeg)
+  Licensed under the GNU General Public License version 3 (this build enables GPL and version 3 components).
+  FFmpeg source code: https://ffmpeg.org/download.html
+  The harvester runs ffmpeg and ffprobe as separate programs; they are unchanged copies of the builds above.
+  GPLv3 text: https://www.gnu.org/licenses/gpl-3.0.txt
+
+Python runtime and libraries bundled by PyInstaller, each under its own licence, including:
+  Python (PSF License), Flask and Werkzeug (BSD-3-Clause), notebooklm-py (MIT),
+  rookie-cookies, httpx, rich and their dependencies (see each project's licence).
