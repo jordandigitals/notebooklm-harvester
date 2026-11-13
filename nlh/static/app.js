@@ -279,6 +279,28 @@ async function browse(path) {
     }
     if (!data.dirs.length) list.append(el("li", "hint", "No folders inside."));
     $("picker-up").disabled = data.parent === null;
+    $("picker-new").disabled = !data.path;
+    show($("picker-new-row"), false);
+  } catch (e) {
+    $("picker-error").textContent = e.message;
+  }
+}
+
+/** Show the new-folder name box in the picker. */
+function startNewFolder() {
+  show($("picker-new-row"), true);
+  $("picker-new-name").value = "";
+  $("picker-new-name").focus();
+}
+
+/** Create a folder inside the one being browsed, then open it. */
+async function createFolder() {
+  const name = $("picker-new-name").value.trim();
+  if (!name) return;
+  try {
+    const data = await api("/api/mkdir", { method: "POST", body: { parent: state.pickerPath, name } });
+    show($("picker-new-row"), false);
+    await browse(data.path);
   } catch (e) {
     $("picker-error").textContent = e.message;
   }
@@ -366,6 +388,9 @@ function wire() {
   $("picker-path").addEventListener("keydown", (e) => { if (e.key === "Enter") browse($("picker-path").value); });
   $("picker-up").addEventListener("click", () => browse(state.pickerParent || ""));
   $("picker-home").addEventListener("click", () => browse(""));
+  $("picker-new").addEventListener("click", startNewFolder);
+  $("picker-new-ok").addEventListener("click", createFolder);
+  $("picker-new-name").addEventListener("keydown", (e) => { if (e.key === "Enter") createFolder(); });
   $("picker-cancel").addEventListener("click", () => show($("picker"), false));
   $("picker-ok").addEventListener("click", usePickedFolder);
   $("history-account").addEventListener("change", loadHistory);
