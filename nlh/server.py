@@ -22,7 +22,7 @@ from pathlib import Path
 
 from flask import Flask, abort, jsonify, request, send_from_directory
 
-from nlh import APP_NAME, __version__, accounts, adapter, harvest, media, naming
+from nlh import APP_NAME, __version__, accounts, adapter, harvest, media, naming, paths
 from nlh.ledger import Ledger
 from nlh.log import get_logger
 
@@ -45,6 +45,9 @@ class Job:
     lines: list[str] = field(default_factory=list)
     items: dict[str, dict] = field(default_factory=dict)
     message: str = ""
+    pct: float | None = None  # overall fraction for harvests
+    total: int = 0
+    current: str | None = None
 
     def view(self) -> dict:
         """JSON view for the page."""
@@ -57,6 +60,9 @@ class Job:
             "lines": self.lines[-50:],
             "items": self.items,
             "message": self.message,
+            "pct": self.pct,
+            "total": self.total,
+            "current": self.current,
         }
 
 
@@ -102,6 +108,7 @@ class Worker:
 def create_app(token: str, ledger: Ledger | None = None) -> Flask:
     """Build the Flask app. Every request needs the launch token and a local Host."""
     app = Flask(__name__, static_folder=None)
+    _clear_stale_temp()
     led = ledger or Ledger()
     worker = Worker()
     library: dict[int, list] = {}  # account id -> [(Notebook, [AudioOverview])]
@@ -316,11 +323,22 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
 
         def run(job):
             for ov in chosen:
-                job.items[ov.artifact_id] = {"title": ov.title, "step": "Waiting", "outcome": None}
+                job.items[ov.artifact_id] = {
+                    "title": ov.title,
+                    "step": "Waiting",
+                    "outcome": None,
+                    "pct": 0.0,
+                }
+            job.total = len(chosen)
 
-            def on_item(i, n, ov, msg):
-                job.items[ov.artifact_id]["step"] = msg
-                job.lines.append(f"[{i + 1}/{n}] {ov.title}: {msg}")
+            def on_item(i, n, ov, msg, pct=None):
+                item = job.items[ov.artifact_id]
+                item["step"], item["pct"] = msg, pct
+                done = sum((it["pct"] or 0) for it in job.items.values())
+                job.pct = min(1.0, done / max(1, n))
+                job.current = ov.artifact_id
+                if not msg.startswith(("Downloading ", "Converting to MP3 ")):
+                    job.lines.append(f"[{i + 1}/{n}] {ov.title}: {msg}")
 
             results = harvest.harvest_many(
                 led,
@@ -331,7 +349,8 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
                 on_item=on_item,
             )
             for r in results:
-                job.items[r.artifact_id].update(outcome=r.outcome, step=r.message)
+                job.items[r.artifact_id].update(outcome=r.outcome, step=r.message, pct=1.0)
+            job.pct, job.current = 1.0, None
             saved = sum(r.outcome == "saved" for r in results)
             failed = sum(r.outcome == "failed" for r in results)
             job.message = f"Saved {saved}, skipped {len(results) - saved - failed}, failed {failed}."
@@ -422,6 +441,16 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
     app.config["worker"] = worker
     app.config["library"] = library
     return app
+
+
+def _clear_stale_temp() -> None:
+    """Remove leftover per-item temp folders from an interrupted run (app home only)."""
+    import shutil
+
+    for item in paths.temp_dir().glob("item-*"):
+        if item.is_dir():
+            shutil.rmtree(item, ignore_errors=True)
+            log.info("cleared leftover temp folder %s", item.name)
 
 
 def open_in_file_manager(path: Path) -> None:

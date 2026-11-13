@@ -121,8 +121,14 @@ def cmd_harvest(ledger: Ledger, a) -> int:
         print("Nothing new to harvest.")
         return 0
 
-    def show(i, n, ov, msg):
-        print(f"[{i + 1}/{n}] {ov.title}: {msg}")
+    last = {}
+
+    def show(i, n, ov, msg, pct=None):
+        # Print each stage once; percentages only every 10 percent.
+        key = msg.split(" ")[0] + (str(int((pct or 0) * 10)) if msg.startswith("Converting") else "")
+        if last.get(ov.artifact_id) != key and not msg.startswith("Downloading "):
+            last[ov.artifact_id] = key
+            print(f"[{i + 1}/{n}] {ov.title}: {msg}")
 
     results = harvest.harvest_many(ledger, acct, ovs, out, on_item=show)
     saved = sum(r.outcome == "saved" for r in results)

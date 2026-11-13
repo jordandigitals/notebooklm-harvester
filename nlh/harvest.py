@@ -76,10 +76,10 @@ def harvest_one(
     *,
     redownload: bool = False,
     downloader: Callable[[str, AudioOverview, Path], Path] | None = None,
-    on_step: Callable[[str], None] | None = None,
+    on_step: Callable[..., None] | None = None,
 ) -> ItemResult:
     """Harvest a single overview into out_dir. Skips anything already saved."""
-    step = on_step or (lambda _msg: None)
+    step = on_step or (lambda _msg, _pct=None: None)
     download = downloader or adapter.download_overview
 
     status = overview_status(ledger, ov)
@@ -99,9 +99,24 @@ def harvest_one(
     final: Path | None = None
     placed = False
     try:
-        step("Downloading")
-        src = download(account.profile_name, ov, work / "source.bin")
-        step("Checking the audio")
+        step("Downloading", None)
+        stop = threading.Event()
+
+        def watch():
+            # The library streams into a temp file next to the target; report its size.
+            while not stop.wait(0.7):
+                size = sum(f.stat().st_size for f in work.glob("source.bin*") if f.is_file())
+                if size:
+                    step(f"Downloading {size / 1e6:.1f} MB", None)
+
+        watcher = threading.Thread(target=watch, daemon=True)
+        watcher.start()
+        try:
+            src = download(account.profile_name, ov, work / "source.bin")
+        finally:
+            stop.set()
+            watcher.join(timeout=2)
+        step("Checking the audio", 0.3)
         source = media.probe(src)
         log.info(
             "artifact %s source %s/%s %.2fs %dch",
@@ -112,13 +127,19 @@ def harvest_one(
             source.channels,
         )
         tags = media.build_tags(ov.title, ov.notebook_title, ov.created_at, ov.notebook_id, ov.artifact_id)
-        step("Converting to MP3")
+        step("Converting to MP3 0%", 0.3)
         mp3 = work / "out.mp3"
-        media.convert_to_mp3(src, mp3, tags)
+        media.convert_to_mp3(
+            src,
+            mp3,
+            tags,
+            duration=source.duration,
+            on_progress=lambda f: step(f"Converting to MP3 {int(f * 100)}%", 0.3 + 0.65 * f),
+        )
         checked = media.verify_mp3(mp3, source.duration, tags)
         digest = media.sha256(mp3)
 
-        step("Saving")
+        step("Saving", 0.97)
         final = naming.unique_path(out_dir, ov.title)
         part = final.with_name(final.name + ".part")
         shutil.copyfile(mp3, part)
@@ -174,16 +195,16 @@ def harvest_many(
     *,
     redownload_ids: set[str] | None = None,
     downloader=None,
-    on_item: Callable[[int, int, AudioOverview, str], None] | None = None,
+    on_item: Callable[..., None] | None = None,
 ) -> list[ItemResult]:
     """Harvest several overviews one at a time, holding the global work lock."""
     results = []
     with WORK_LOCK:
         for i, ov in enumerate(overviews):
 
-            def step(msg, i=i, ov=ov):
+            def step(msg, pct=None, i=i, ov=ov):
                 if on_item:
-                    on_item(i, len(overviews), ov, msg)
+                    on_item(i, len(overviews), ov, msg, pct)
 
             res = harvest_one(
                 ledger,
@@ -194,6 +215,6 @@ def harvest_many(
                 downloader=downloader,
                 on_step=step,
             )
-            step(res.message)
+            step(res.message, 1.0)
             results.append(res)
     return results
