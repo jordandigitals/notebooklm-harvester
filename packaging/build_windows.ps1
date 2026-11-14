@@ -29,12 +29,13 @@ if ($Got -ne $FfSha) { throw "ffmpeg download checksum mismatch: $Got" }
 $FfDir = Join-Path $Cache "ffmpeg-9.0.2-essentials_build"
 if (-not (Test-Path "$FfDir\bin\ffmpeg.exe")) { Expand-Archive -Path $Zip -DestinationPath $Cache -Force }
 
-if (-not (Test-Path "$BuildVenv\Scripts\pyinstaller.exe")) {
+if (-not (Test-Path "$BuildVenv\Scripts\python.exe")) {
     py -3.14 -m venv $BuildVenv
     & "$BuildVenv\Scripts\python.exe" -m pip install -q --upgrade pip
-    & "$BuildVenv\Scripts\python.exe" -m pip install -q -r requirements.txt pyinstaller==6.22.3
-    if ($LASTEXITCODE -ne 0) { throw "pip install failed" }
 }
+# Every build: a reused build environment must pick up new pinned requirements (0.3.0 added segno).
+& "$BuildVenv\Scripts\python.exe" -m pip install -q -r requirements.txt pyinstaller==6.22.3
+if ($LASTEXITCODE -ne 0) { throw "pip install failed" }
 
 foreach ($p in @("build\pyinstaller", "dist\$Name")) { if (Test-Path $p) { Remove-Item -Recurse -Force $p } }
 Get-ChildItem dist -Filter "NotebookLM-Harvester-win-*" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force

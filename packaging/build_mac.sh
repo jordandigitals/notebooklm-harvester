@@ -31,10 +31,11 @@ fetch() {  # name expected_sha
 fetch ffmpeg "$FF_ZIP_SHA"
 fetch ffprobe "$FP_ZIP_SHA"
 
-if [ ! -x "$BUILD_VENV/bin/pyinstaller" ]; then
+if [ ! -x "$BUILD_VENV/bin/python" ]; then
   /usr/local/bin/python3.14 -m venv "$BUILD_VENV"
-  "$BUILD_VENV/bin/pip" install -q -r requirements.txt pyinstaller==6.22.3
 fi
+# Every build: a reused build environment must pick up new pinned requirements (0.3.0 added segno).
+"$BUILD_VENV/bin/pip" install -q -r requirements.txt pyinstaller==6.22.3
 
 rm -rf build/pyinstaller "dist/$NAME.app" dist/NotebookLM-Harvester-mac-*
 "$BUILD_VENV/bin/pyinstaller" --noconfirm --clean --windowed \
