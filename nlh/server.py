@@ -202,6 +202,7 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
             "email": a.email,
             "chrome_profile": a.chrome_profile,
             "output_dir": a.output_dir,
+            "folder_ok": bool(a.output_dir and Path(a.output_dir).is_dir()),
             # D-023: warn on Windows when the output folder itself is long.
             "long_folder": paths.is_windows() and len(a.output_dir or "") > naming.LONG_FOLDER_WARNING_CHARS,
             "status": a.last_status or "unknown",
@@ -510,6 +511,7 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
         """One job that harvests the given (account id, artifact id) pairs, account by account."""
         by_account: dict[int, list] = {}
         problems = []
+        skipped_count = [0]
         for account_id, artifact_id in items:
             acct = led.account(account_id)
             if not acct or not ensure_listing(account_id):
@@ -517,6 +519,7 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
                 continue
             if not acct.output_dir or not Path(acct.output_dir).is_dir():
                 problems.append(f"{acct.label} has no reachable output folder")
+                skipped_count[0] += 1
                 continue
             ov = next(
                 (o for _nb, ovs in library[account_id] for o in ovs if o.artifact_id == artifact_id), None
@@ -529,13 +532,17 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
             return None, msg
 
         def run(job):
-            for ov in chosen:
-                job.items[ov.artifact_id] = {
-                    "title": ov.title,
-                    "step": "Waiting",
-                    "outcome": None,
-                    "pct": 0.0,
-                }
+            for account_id, ovs in by_account.items():
+                for ov in ovs:
+                    job.items[ov.artifact_id] = {
+                        "title": ov.title,
+                        "step": "Waiting",
+                        "outcome": None,
+                        "pct": 0.0,
+                        "account_id": account_id,
+                        "redo": ov.artifact_id in redo,
+                    }
+            template = app_settings.load().get("naming_template")
             job.total = len(chosen)
             done_before = 0
             all_results = []
@@ -565,6 +572,7 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
                     downloader=download,
                     on_item=on_item,
                     cancel=job.cancel,
+                    template=template,
                 )
                 for r in results:
                     job.items[r.artifact_id].update(outcome=r.outcome, step=r.message, pct=1.0)
@@ -578,6 +586,8 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
                 + (f", cancelled {counts['cancelled']}" if counts["cancelled"] else "")
                 + "."
             )
+            if skipped_count[0]:
+                job.message += f" Not started: {skipped_count[0]} ({'; '.join(sorted(set(problems)))})."
             if job.cancel.is_set():
                 job.state = "cancelled"
             elif counts["failed"]:
@@ -612,6 +622,72 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
             abort(404)
         j.cancel.set()
         return jsonify(j.view())
+
+    @app.post("/api/naming/preview")
+    def naming_preview():
+        """Live preview of a naming template with a sample title (Settings)."""
+        template = str(body().get("template") or naming.DEFAULT_TEMPLATE)
+        try:
+            template = app_settings.validate_template(template)
+        except app_settings.SettingsError as exc:
+            return jsonify(error=str(exc)), 400
+        sample = {
+            "notebook": "Garden Planning: Spring/Summer",
+            "title": "Why Raised Beds Warm Up Faster?",
+            "date": "2026-11-14",
+            "account": "Work account",
+        }
+        folder, stem = naming.render_template(template, **sample)
+        return jsonify(path=(f"{folder}/" if folder else "") + stem + ".mp3", sample=sample)
+
+    @app.get("/api/diagnostics")
+    def diagnostics():
+        """Facts for a support message: versions and paths, redacted, no account details."""
+        import platform
+
+        from nlh.log import redact
+
+        try:
+            from importlib.metadata import version as pkg_version
+
+            lib_version = pkg_version("notebooklm-py")
+        except Exception:
+            lib_version = "unknown"
+        statuses = ", ".join(sorted({a.last_status or "unknown" for a in led.accounts()}))
+        lines = [
+            f"{APP_NAME} {__version__}",
+            f"System: {platform.system()} {platform.release()} ({platform.machine()})",
+            f"Python: {platform.python_version()}",
+            f"notebooklm-py: {lib_version}",
+            f"ffmpeg found: {media.tools_available()}",
+            f"Packaged app: {bool(getattr(sys, 'frozen', False))}",
+            f"Demo mode: {demo.enabled()}",
+            f"App home: {paths.app_home()}",
+            f"Log file: {paths.log_dir() / 'nlh.log'}",
+            f"Accounts: {len(led.accounts())} (status: {statuses})",
+            f"Saved files in ledger: {len(led.harvests())}",
+            f"Ledger schema: {led.conn.execute('PRAGMA user_version').fetchone()[0]}",
+        ]
+        return jsonify(text=redact("\n".join(lines)))
+
+    @app.get("/api/item/<path:artifact_id>")
+    def item_details(artifact_id):
+        """Everything known about one overview for the details drawer (tags read from the file)."""
+        h = led.harvest(artifact_id)
+        attempts = led.conn.execute(
+            "SELECT started_at, outcome, message, download_s FROM attempts WHERE artifact_id = ? "
+            "ORDER BY id DESC LIMIT 10",
+            (artifact_id,),
+        ).fetchall()
+        out = {"artifact_id": artifact_id, "attempts": [dict(r) for r in attempts], "saved": None}
+        if h:
+            out["saved"] = history_row(h, {a.id: a for a in led.accounts()})
+            if h.file_present:
+                try:
+                    out["tags"] = media.probe(Path(h.saved_path)).tags
+                except media.MediaError:
+                    out["tags"] = {}
+        return jsonify(out)
 
     # ------------------------------------------------------------ settings and views
 

@@ -41,6 +41,8 @@
   <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M4 16V6a2 2 0 0 1 2-2h10"/></symbol>
   <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
   <symbol id="i-export" viewBox="0 0 24 24"><path d="M12 15V3m0 0-4 4m4-4 4 4M5 13v6a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-6"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+  <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></symbol>
   <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V4M4 20h16M8 16v-5M12 16V8M16 16v-3"/></symbol>
 </svg>
 
@@ -64,6 +66,8 @@
       <button class="tab" type="button" data-view="library" aria-current="page"><svg class="icon" aria-hidden="true"><use href="#i-library"/></svg><span class="label">Library</span></button>
       <button class="tab" type="button" data-view="history"><svg class="icon" aria-hidden="true"><use href="#i-history"/></svg><span class="label">History</span></button>
       <button class="tab" type="button" data-view="stats"><svg class="icon" aria-hidden="true"><use href="#i-chart"/></svg><span class="label">Stats</span></button>
+      <button class="tab" type="button" data-view="settings"><svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg><span class="label">Settings</span></button>
+      <button class="tab" type="button" id="keys-help" aria-label="Keyboard shortcuts"><svg class="icon" aria-hidden="true"><use href="#i-keyboard"/></svg></button>
       <button class="tab" type="button" id="quit" aria-label="Quit the app"><svg class="icon" aria-hidden="true"><use href="#i-power"/></svg><span class="label">Quit</span></button>
     </nav>
   </header>
@@ -171,6 +175,7 @@
 
     <section id="view-history" class="view is-hidden" aria-label="History"></section>
     <section id="view-stats" class="view is-hidden" aria-label="Statistics"></section>
+    <section id="view-settings" class="view is-hidden" aria-label="Settings"></section>
   </main>
 </div>
 

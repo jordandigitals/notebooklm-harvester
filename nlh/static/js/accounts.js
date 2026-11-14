@@ -4,7 +4,7 @@ import { $, el, icon, button, pill, show, plural } from "./dom.js";
 import { toast, dialog } from "./ui.js";
 import { lib, apply, renderFilters } from "./library.js";
 
-export const acctState = { windows: false, interactive: true, startJob: null, busy: () => false };
+export const acctState = { windows: false, interactive: true, startJob: null, busy: () => false, defaultOutput: "" };
 
 /** Draw the sidebar account list. */
 export function renderAccountList() {
@@ -175,8 +175,20 @@ export function adjustAddPanel() {
 
 // ------------------------------------------------------------ folder picker
 
-/** The folder picker dialog: browse, type a path, make a new folder. */
+/** Choose an output folder for an account (starts at its folder or the default suggestion). */
 export async function openPicker(account) {
+  const start = account.output_dir || acctState.defaultOutput || "";
+  const chosen = await openFolderPicker(start);
+  if (!chosen) return;
+  try {
+    await api(`/api/accounts/${account.id}/output`, { method: "POST", body: { path: chosen } });
+    toast("Folder saved.");
+    document.dispatchEvent(new CustomEvent("nlh:reload"));
+  } catch (e) { toast(e.message, "bad"); }
+}
+
+/** The folder picker dialog: browse, type a path, make a new folder. Resolves to a path or null. */
+export async function openFolderPicker(startPath = "") {
   const body = el("div", "filters");
   const pathRow = el("div", "row");
   const path = el("input", "input grow");
@@ -236,12 +248,7 @@ export async function openPicker(account) {
     ok.addEventListener("click", create);
     input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); create(); } });
   });
-  await browse(account.output_dir || "");
+  await browse(startPath);
   const choice = await dialog({ title: "Choose a folder", body, actions: [{ label: "Cancel", value: null }, { label: "Use this folder", value: "use", primary: true }] });
-  if (choice !== "use") return;
-  try {
-    await api(`/api/accounts/${account.id}/output`, { method: "POST", body: { path: path.value } });
-    toast("Folder saved.");
-    document.dispatchEvent(new CustomEvent("nlh:reload"));
-  } catch (e) { toast(e.message, "bad"); }
+  return choice === "use" ? path.value : null;
 }

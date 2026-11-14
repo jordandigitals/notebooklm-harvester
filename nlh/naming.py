@@ -128,3 +128,77 @@ def unique_path(folder: Path, title: str, ext: str = ".mp3") -> Path:
         candidate = f"{stem} ({n}){ext}"
         n += 1
     return folder / candidate
+
+
+DEFAULT_TEMPLATE = "{notebook}/{title}"
+
+
+def render_template(
+    template: str, *, notebook: str, title: str, date: str | None, account: str
+) -> tuple[str | None, str]:
+    """Fill a naming template (settings, ARCH-RULES 10): returns (folder name or None, file stem).
+
+    Tokens: {notebook}, {title}, {date} (YYYY-MM-DD of creation), {account}. At most one
+    folder level. Each part follows the same character rules as file names; the folder
+    is capped like a notebook folder (D-019).
+    """
+    template = template or DEFAULT_TEMPLATE
+    values = {
+        "{notebook}": notebook or "",
+        "{title}": title or "",
+        "{date}": (date or "")[:10],
+        "{account}": account or "",
+    }
+
+    def fill(part: str) -> str:
+        for token, value in values.items():
+            part = part.replace(token, value)
+        return part
+
+    parts = template.split("/", 1)
+    if len(parts) == 2:
+        folder = safe_stem(fill(parts[0]))[:MAX_FOLDER].rstrip(". ") or "Notebook"
+        return folder, safe_stem(fill(parts[1]))
+    return None, safe_stem(fill(parts[0]))
+
+
+def template_target(
+    out_dir: Path,
+    template: str,
+    *,
+    notebook: str,
+    title: str,
+    date: str | None,
+    account: str,
+    ext: str = ".mp3",
+) -> Path:
+    """Where a new file goes under a template: folder created once and reused, no clashes.
+
+    On Windows the cap (D-023) applies to the file name, and a too-deep folder is refused
+    before anything is created.
+    """
+    folder_part, stem = render_template(template, notebook=notebook, title=title, date=date, account=account)
+    folder = Path(out_dir) / folder_part if folder_part else Path(out_dir)
+    room = stem_room(folder, ext)
+    if room is not None and room < WIN_MIN_STEM:
+        raise PathTooLong()
+    folder.mkdir(exist_ok=True)
+    return unique_path(folder, stem, ext)
+
+
+def check_template_fits(
+    out_dir: Path,
+    template: str,
+    *,
+    notebook: str,
+    title: str,
+    date: str | None,
+    account: str,
+    ext: str = ".mp3",
+) -> None:
+    """Raise PathTooLong (Windows only) before any download if the template's folder is too deep."""
+    folder_part, _stem = render_template(template, notebook=notebook, title=title, date=date, account=account)
+    folder = Path(out_dir) / folder_part if folder_part else Path(out_dir)
+    room = stem_room(folder, ext)
+    if room is not None and room < WIN_MIN_STEM:
+        raise PathTooLong()

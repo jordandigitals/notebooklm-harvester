@@ -277,6 +277,9 @@ def install_fake_adapter() -> None:
         return _load_listing(saved[0]) if saved else []
 
     def download_overview(profile_name, overview, dest):
+        if "glacier" in overview.title.lower():
+            # A predictable failure so the queue's failed state and Retry can be seen and tested.
+            raise adapter.AdapterError("Could not reach NotebookLM (demo failure for titles with glacier).")
         if "src" not in tone_cache:
             src = paths.app_home() / "demo-download.m4a"
             _tone(src, 4.0)

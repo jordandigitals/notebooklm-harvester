@@ -1,7 +1,7 @@
 // Page start-up and wiring. ES module, no build step, no third-party code.
 import { api } from "./api.js";
 import { $, el, icon, button, show, STATUS_TEXT } from "./dom.js";
-import { toast, confirmDialog, popover, closePopover } from "./ui.js";
+import { toast, confirmDialog, popover, dialog } from "./ui.js";
 import {
   lib, initLibrary, loadLibrary, apply, renderFilters, setQuery, clearAll, applyView, openViewsMenu,
   selectAllVisible, selectNew, invertSelection, clearSelection, harvestSelection, moveFocus, toggleFocused,
@@ -10,7 +10,10 @@ import {
 import { acctState, renderAccountList, renderAccountCard, syncScopeButtons, toggleAdd, adjustAddPanel } from "./accounts.js";
 import { renderHistory, hist, historyHooks } from "./history.js";
 import { renderStats } from "./stats.js";
-import { playerState } from "./player.js";
+import { playerState, togglePlay } from "./player.js";
+import { renderQueue, retryItems } from "./queue.js";
+import { renderSettings, applyTheme, prefs } from "./settings.js";
+import { closeDrawer } from "./drawer.js";
 import { encode, decode, hasState } from "./urlstate.js";
 
 const app = { view: "library", jobId: null, settings: null };
@@ -39,6 +42,7 @@ async function poll() {
   renderJob(job);
   if (job.state === "queued" || job.state === "running") { setTimeout(poll, 700); return; }
   app.jobId = null;
+  notifyIfAway(job);
   const kind = job.state === "done" ? "ok" : job.state === "cancelled" ? "warn" : "bad";
   toast(job.message || `${job.title}: ${STATUS_TEXT[job.state] || job.state}`, kind, 7000);
   if (job.kind === "add" && job.account_id) { lib.account = job.account_id; lib.scope = "account"; show($("add-panel"), false); }
@@ -50,49 +54,17 @@ async function poll() {
 }
 
 function renderJob(job) {
-  const box = $("job-box");
-  if (!job || !["queued", "running"].includes(job.state)) { box.replaceChildren(); return; }
-  const card = el("div", "job");
-  const head = el("div", "job-head");
-  head.append(el("span", "grow", job.title), el("span", `pill st-${job.state}`, job.cancelling ? "Stopping after this step" : STATUS_TEXT[job.state]));
-  if (job.kind === "harvest" && !job.cancelling) {
-    head.append(button("Cancel", { cls: "btn btn-sm", onClick: async () => { await api(`/api/jobs/${job.id}/cancel`, { method: "POST" }); poll(); } }));
-  }
-  card.append(head);
-  const bar = el("div", "bar");
-  bar.setAttribute("role", "progressbar");
-  bar.setAttribute("aria-label", job.title);
-  const fill = el("span", "bar-fill");
-  if (job.kind === "harvest") {
-    const pct = Math.round((job.pct || 0) * 100);
-    fill.style.setProperty("--pct", `${pct}%`);
-    bar.setAttribute("aria-valuenow", String(pct));
-  } else bar.classList.add("indeterminate");
-  bar.append(fill);
-  card.append(bar);
-  const last = job.lines.length ? job.lines[job.lines.length - 1] : "";
-  if (last) card.append(el("p", "hint", last));
-  if (job.kind === "harvest") {
-    const items = el("ul", "job-items");
-    const entries = Object.entries(job.items);
-    for (const [id, it] of entries.slice(0, 50)) {
-      const li = el("li");
-      const jh = el("div", "jh");
-      jh.append(el("span", "", it.title), el("span", "", it.step));
-      const b = el("div", "bar bar-thin");
-      const f = el("span", "bar-fill");
-      const working = job.current === id && !it.outcome;
-      if (working && (it.pct === null || it.pct === undefined)) b.classList.add("indeterminate");
-      else f.style.setProperty("--pct", `${Math.round((it.outcome ? 1 : it.pct || 0) * 100)}%`);
-      if (it.outcome === "failed") b.classList.add("failed");
-      b.append(f);
-      li.append(jh, b);
-      items.append(li);
-    }
-    if (entries.length > 50) items.append(el("li", "hint", `${entries.length - 50} more in this job.`));
-    card.append(items);
-  }
-  box.replaceChildren(card);
+  renderQueue(job, {
+    onCancel: async (j) => { try { await api(`/api/jobs/${j.id}/cancel`, { method: "POST" }); poll(); } catch (e) { toast(e.message, "bad"); } },
+    onRetry: (j, failed) => startJob(retryItems(failed)),
+  });
+}
+
+function notifyIfAway(job) {
+  if (!app.settings || !app.settings.notifications || !document.hidden) return;
+  if (job.kind !== "harvest" || (job.elapsed_s || 0) < 60) return;
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  try { new Notification(document.title.split(" · ")[0], { body: job.message || job.title }); } catch (e) { /* ignore */ }
 }
 
 // ------------------------------------------------------------ state and chrome
@@ -136,6 +108,7 @@ async function reload() {
   refreshChrome();
   if (app.view === "history") renderHistory({ keepPage: true });
   if (app.view === "stats") renderStats();
+  if (app.view === "settings") renderSettings();
 }
 
 function syncUrl(push = false) {
@@ -153,10 +126,12 @@ function switchView(view, push = true) {
   show($("view-library"), view === "library");
   show($("view-history"), view === "history");
   show($("view-stats"), view === "stats");
+  show($("view-settings"), view === "settings");
+  if (view === "settings") renderSettings();
   if (view === "history") renderHistory();
   if (view === "stats") renderStats();
   const base = document.title.split(" · ")[0];
-  const names = { history: "History", stats: "Statistics" };
+  const names = { history: "History", stats: "Statistics", settings: "Settings" };
   document.title = names[view] ? `${base} · ${names[view]}` : base;
   syncUrl(push);
   if (view === "library") apply({ keepScroll: true });
@@ -183,18 +158,42 @@ function searchHelp(anchor) {
 
 // ------------------------------------------------------------ keyboard
 
+const KEYS = [
+  ["/", "Search (also Ctrl or Cmd + K)"], ["?", "This list of shortcuts"], ["g then l", "Library"],
+  ["g then h", "History"], ["g then s", "Statistics"], ["g then ,", "Settings"],
+  ["j / k", "Next or previous overview"], ["x", "Select or unselect the overview"],
+  ["Enter", "Open its details"], ["p", "Play or pause the player"], ["Esc", "Close details, menus and dialogs"],
+];
+
+function cheatSheet() {
+  const dl = el("dl", "keys");
+  for (const [k, what] of KEYS) {
+    const dt = el("dt");
+    for (const part of k.split(" ")) {
+      if (["then", "/", "or"].includes(part)) dt.append(document.createTextNode(` ${part} `));
+      else dt.append(el("kbd", "kbd", part));
+    }
+    dl.append(dt, el("dd", "", what));
+  }
+  dialog({ title: "Keyboard shortcuts", body: dl, actions: [{ label: "Close", value: true, primary: true }] });
+}
+
 let lastG = 0;
 function onKey(e) {
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || "") || document.activeElement?.isContentEditable;
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); $("q").focus(); $("q").select(); return; }
   if (e.key === "Escape" && document.activeElement === $("q")) { $("q").blur(); return; }
+  if (e.key === "Escape" && closeDrawer()) return;
   if (typing || e.metaKey || e.ctrlKey || e.altKey || $("dlg").open) return;
   if (e.key === "/") { e.preventDefault(); $("q").focus(); return; }
+  if (e.key === "?") { e.preventDefault(); cheatSheet(); return; }
+  if (e.key === "p" && togglePlay()) { e.preventDefault(); return; }
   if (e.key === "g") { lastG = Date.now(); return; }
   if (Date.now() - lastG < 1000) {
     if (e.key === "l") { switchView("library"); lastG = 0; return; }
     if (e.key === "h") { switchView("history"); lastG = 0; return; }
     if (e.key === "s") { switchView("stats"); lastG = 0; return; }
+    if (e.key === ",") { switchView("settings"); lastG = 0; return; }
   }
   if (app.view !== "library") return;
   if (e.key === "j") { e.preventDefault(); moveFocus(1); }
@@ -217,8 +216,10 @@ async function init() {
   hist.saveSize = (n) => api("/api/settings", { method: "POST", body: { history_page_size: n } }).catch(() => {});
   hist.startJob = startJob;
   hist.notebookBase = st.notebook_base || "";
-  const theme = app.settings.theme;
-  if (theme && theme !== "auto") document.documentElement.dataset.theme = theme;
+  prefs.version = st.version;
+  applyTheme(app.settings.theme);
+  acctState.defaultOutput = app.settings.default_output || "";
+  lib.startJob = startJob;
   adjustAddPanel();
 
   const view = decode(location.search);
@@ -265,6 +266,7 @@ async function init() {
   $("signin-add").addEventListener("click", () => startJob(api("/api/accounts/signin", { method: "POST", body: { label: $("signin-label").value } }), { add: true }));
   $("sidebar-open").addEventListener("click", () => { $("sidebar").classList.add("is-open"); $("sidebar").querySelector("button")?.focus(); });
   for (const b of document.querySelectorAll(".close-sidebar")) b.addEventListener("click", () => { $("sidebar").classList.remove("is-open"); $("sidebar-open").focus(); });
+  $("keys-help").addEventListener("click", cheatSheet);
   $("quit").addEventListener("click", async () => {
     if (!(await confirmDialog("Quit the harvester?", "You can start it again from its icon. Nothing is lost.", "Quit"))) return;
     try {

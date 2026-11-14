@@ -122,7 +122,8 @@ def capture(out_dir: Path, prefix: str) -> list[str]:
                 ".filter(e => e.clientWidth > 1 && e.scrollWidth > e.clientWidth + 1"
                 " && getComputedStyle(e).overflowX !== 'visible'"
                 " && !e.matches('.hwrap, .sr-only, .rtitle, .rmeta, .rmeta > span, .lbl, .gname, .an, .ae,"
-                " .pl-title, .pl-sub, .hbar-name, .chip .lbl, .check .lbl, .folder code, .tt'))"
+                " .pl-title, .pl-sub, .hbar-name, .chip .lbl, .check .lbl, .folder code, .tt,"
+                " .jt, .jerr, .jh > span'))"
                 ".map(e => e.tagName + '#' + e.id + '.' + e.className)"
             )
             if wide:
@@ -141,6 +142,100 @@ def capture(out_dir: Path, prefix: str) -> list[str]:
             return out.name
 
         made = []
+        if prefix.endswith("-u3-mac"):
+
+            def start_harvest(pg, q):
+                pg.goto(srv.base + "/?" + q)
+                pg.wait_for_selector("body[data-ready='1']")
+                pg.click("#sel-visible")
+                pg.click("#sel-harvest")
+                if pg.locator("dialog[open]").count():
+                    pg.locator("dialog[open] .btn-primary").click()
+
+            made.append(
+                pair(
+                    1,
+                    "queue-running",
+                    "light",
+                    setup=lambda pg: (
+                        start_harvest(pg, "status=new,failed&q=orchard"),
+                        pg.wait_for_timeout(6000),
+                    ),
+                )
+            )
+            made.append(
+                pair(
+                    2,
+                    "queue-failed-retry",
+                    "dark",
+                    setup=lambda pg: (
+                        start_harvest(pg, "status=new,failed&inc=glacier"),
+                        pg.locator("section.job button:has-text('Retry')").wait_for(timeout=180000),
+                    ),
+                )
+            )
+            made.append(
+                pair(
+                    3,
+                    "settings",
+                    "light",
+                    query="v=settings",
+                    full=True,
+                    setup=lambda pg: pg.wait_for_selector(".set-card"),
+                )
+            )
+            made.append(
+                pair(
+                    4,
+                    "settings",
+                    "dark",
+                    query="v=settings",
+                    full=True,
+                    setup=lambda pg: pg.wait_for_selector(".set-card"),
+                )
+            )
+            made.append(
+                pair(
+                    5,
+                    "drawer",
+                    "light",
+                    query="status=saved",
+                    setup=lambda pg: (
+                        pg.locator("#vspacer .vrow .rbody").first.click(),
+                        pg.wait_for_selector("#drawer h3:has-text('Saved file')"),
+                    ),
+                )
+            )
+            made.append(
+                pair(
+                    6,
+                    "shortcuts",
+                    "dark",
+                    setup=lambda pg: (
+                        pg.focus("#vlist"),
+                        pg.keyboard.press("?"),
+                        pg.wait_for_selector("dialog[open] .keys"),
+                    ),
+                )
+            )
+            made.append(
+                pair(
+                    7,
+                    "template-preview",
+                    "light",
+                    query="v=settings",
+                    setup=lambda pg: (
+                        pg.wait_for_selector(".set-card input.input"),
+                        pg.locator(".set-card input.input").first.fill("{account}/{date} {title}"),
+                        pg.wait_for_timeout(700),
+                    ),
+                )
+            )
+            b.close()
+            for f in tmp.iterdir():
+                f.unlink()
+            tmp.rmdir()
+            return made + notes
         if prefix.endswith("-u2-mac"):
             hist = "v=history"
             made.append(

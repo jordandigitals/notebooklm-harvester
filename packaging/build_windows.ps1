@@ -52,12 +52,12 @@ $Root = (Get-Location).Path
     nlh\app_entry.py
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed" }
 
-Copy-Item packaging\THIRD-PARTY-NOTICES.txt "dist\$Name\"
+Copy-Item nlh\static\THIRD-PARTY-NOTICES.txt "dist\$Name\"
 Copy-Item "$FfDir\LICENSE" "dist\$Name\FFMPEG-LICENSE.txt"
 $Stage = "dist\NotebookLM-Harvester-win-x64-$Version"
 New-Item -ItemType Directory -Force $Stage | Out-Null
 Copy-Item -Recurse "dist\$Name" "$Stage\"
-Copy-Item packaging\THIRD-PARTY-NOTICES.txt, packaging\README-FIRST-win.txt "$Stage\"
+Copy-Item nlh\static\THIRD-PARTY-NOTICES.txt, packaging\README-FIRST-win.txt "$Stage\"
 Compress-Archive -Path $Stage -DestinationPath "$Stage.zip" -Force
 Write-Host "Built $Stage.zip"
 "{0:N0} MB app folder" -f ((Get-ChildItem -Recurse "dist\$Name" | Measure-Object Length -Sum).Sum / 1MB)
