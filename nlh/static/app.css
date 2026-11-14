@@ -492,3 +492,9 @@ body.has-player .actionbar { bottom: 132px; }
 .queue-msg { color: var(--ink-2); }
 .queue-finished { display: grid; gap: var(--s2); }
 .queue-finished summary { cursor: pointer; font-weight: 600; padding: var(--s1) 0; }
+
+/* Touch screens (Chat ruling 2026-11-14): small buttons grow to a 40 px target; mouse layouts unchanged. */
+@media (pointer: coarse) {
+  .btn-sm { min-height: 40px; }
+  .btn-icon.btn-sm { width: 40px; }
+}
