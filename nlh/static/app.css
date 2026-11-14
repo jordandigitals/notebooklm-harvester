@@ -277,6 +277,10 @@ dialog::backdrop { background: rgba(10, 12, 14, 0.5); }
 }
 @media (max-width: 520px) {
   .tab .label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  /* Seven tabs fit at 320 px: icon-only, tighter, and no keyboard-shortcuts button on phones. */
+  .tabs { gap: 2px; margin-left: 0; width: 100%; justify-content: space-between; }
+  .tab { padding: 0 var(--s2); min-width: 38px; justify-content: center; }
+  #keys-help { display: none; }
   .vrow { padding: 0 var(--s3); gap: var(--s2); }
   .rright .pill .ptext { display: none; }
   .toolbar { padding: var(--s2) var(--s3); }
@@ -438,6 +442,8 @@ body.has-player .actionbar { bottom: 132px; }
 .studio-intro { display: grid; gap: var(--s1); }
 .view-title { font-size: 1.25rem; font-weight: 650; }
 .studio-card { min-width: 0; }
+.studio-card .select, .studio-card .input { width: 100%; max-width: 100%; }
+.studio-card .num { width: 7rem; }
 .studio-card textarea.input { resize: vertical; min-height: 4.5rem; font: inherit; line-height: 1.45; }
 .studio-cap { font-weight: 600; color: var(--ink); }
 .nb-list { margin: 0; padding: var(--s1); border: 1px solid var(--line); border-radius: var(--r-sm); max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
