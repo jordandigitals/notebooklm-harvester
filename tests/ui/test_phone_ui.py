@@ -190,3 +190,28 @@ def test_windows_firewall_hint(browser, server):
     assert "Choose Allow, not Cancel" in text and "Public networks" in text and "Private" in text
     page.uncheck("#phone-enable")
     ctx.close()
+
+
+def test_phone_loads_manifest_and_shows_unreachable(browser, server):
+    lap, ph, link = pair(browser, server, "Home screen")
+    base = link.split("/pair/")[0]
+    assert ph.locator("link[rel=manifest]").get_attribute("href") == "/static/manifest.webmanifest"
+    assert ph.locator("link[rel=apple-touch-icon]").count() == 1
+    assert ph.locator("meta[name=apple-mobile-web-app-capable]").get_attribute("content") == "yes"
+    other = phone_ctx(browser)  # a fresh context without the cookie, as a browser fetching the manifest
+    for path in (
+        "/static/manifest.webmanifest",
+        "/static/icons/icon-192.png",
+        "/static/icons/apple-touch-icon.png",
+    ):
+        assert other.request.get(base + path).status == 200, path
+    other.close()
+    lap.reload()
+    lap.wait_for_selector("#phone-enable")
+    lap.uncheck("#phone-enable")  # the laptop stops listening while the phone page is open
+    lap.wait_for_timeout(800)
+    ph.evaluate("document.querySelector('.tab[data-view=history]').click()")
+    ph.wait_for_selector("#unreachable", timeout=10000)
+    assert "Cannot reach the laptop" in ph.inner_text("#unreachable")
+    ph.context.close()
+    lap.context.close()

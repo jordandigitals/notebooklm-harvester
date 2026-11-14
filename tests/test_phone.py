@@ -202,7 +202,7 @@ def test_pair_flow_sets_cookie_and_page_works(app):
     r = c.post(f"/pair/{code}", data={"name": "Note 20"})
     assert r.status_code == 303 and r.headers["Location"] == "/"
     cookie = r.headers["Set-Cookie"]
-    assert "HttpOnly" in cookie and "SameSite=Strict" in cookie and phone.COOKIE in cookie
+    assert "HttpOnly" in cookie and "SameSite=Lax" in cookie and phone.COOKIE in cookie
     token = re.search(rf"{phone.COOKIE}=([^;]+)", cookie).group(1)
     assert phone_client(app, token).get("/api/state").get_json()["role"] == "phone"
     assert phone_client(app).get(f"/pair/{code}").status_code == 410  # used up
@@ -433,3 +433,50 @@ def test_windows_interface_lookup_refuses_non_addresses(monkeypatch):
     phone._WIN_IFACE_CACHE.clear()
     assert phone._windows_interface("1.2.3.4'; Remove-Item x; '") is None
     assert ran == []
+
+
+# ---------------------------------------------------------------- home-screen shortcut
+
+
+def test_manifest_valid_with_required_fields():
+    from nlh.server import STATIC
+
+    m = json.loads((STATIC / "manifest.webmanifest").read_text(encoding="utf-8"))
+    for key in ("name", "short_name", "start_url", "display", "icons", "theme_color", "background_color"):
+        assert m.get(key), key
+    assert m["display"] == "standalone" and m["start_url"] == "/"
+    sizes = {(i["sizes"], i.get("purpose", "any")) for i in m["icons"]}
+    assert ("192x192", "any") in sizes and ("512x512", "any") in sizes and ("512x512", "maskable") in sizes
+    for icon in m["icons"]:
+        assert (STATIC / icon["src"].removeprefix("/static/")).exists()
+
+
+@pytest.mark.parametrize(
+    "name,size",
+    [
+        ("icon-192.png", 192),
+        ("icon-512.png", 512),
+        ("icon-maskable-512.png", 512),
+        ("apple-touch-icon.png", 180),
+    ],
+)
+def test_icon_sizes(name, size):
+    import struct
+
+    from nlh.server import STATIC
+
+    data = (STATIC / "icons" / name).read_bytes()
+    assert data[:8] == b"\x89PNG\r\n\x1a\n"
+    w, h = struct.unpack(">II", data[16:24])
+    assert (w, h) == (size, size)
+
+
+def test_unpaired_phone_gets_manifest_and_icons_only(app):
+    c = phone_client(app)
+    r = c.get("/static/manifest.webmanifest")
+    assert r.status_code == 200 and r.mimetype == "application/manifest+json"
+    for name in sorted(server.PHONE_OPEN_STATIC):
+        assert c.get(f"/static/{name}").status_code == 200, name
+    for path in ("/static/js/main.js", "/static/index.html", "/api/state", "/"):
+        assert c.get(path).status_code == 403, path
+    assert c.get("/static/icons/../js/main.js").status_code in (403, 404)

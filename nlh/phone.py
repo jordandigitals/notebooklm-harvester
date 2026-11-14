@@ -8,7 +8,8 @@ internet: no UPnP, no port forwarding, no tunnel, no external call.
 
 Pairing: a single-use code that expires after five minutes becomes a per-device token.
 Only the token's SHA-256 is stored, in <home>/phones.json (owner-only, atomic write).
-Tokens are never logged and travel only in an HttpOnly cookie.
+Tokens are never logged and travel only in an HttpOnly SameSite=Lax cookie (Lax so a home-screen
+shortcut, which opens the page from outside the browser, still sends it).
 """
 
 from __future__ import annotations

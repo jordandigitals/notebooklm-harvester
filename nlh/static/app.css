@@ -1,4 +1,4 @@
-/* NotebookLM Harvester. One accent, 4 px spacing grid, system fonts, light and dark.
+/* NotebookLM Harvester. One accent (blue, the person 2026-11-14; green kept only for saved/OK states), 4 px spacing grid, system fonts, light and dark.
    No inline styles in markup; JavaScript only sets custom properties for sizes. */
 
 :root {
@@ -18,9 +18,9 @@
   --muted: #5b646a;
   --line: #e2e0da;
   --line-strong: #c9c6be;
-  --accent: #17695a;
+  --accent: #1d5bb8;
   --accent-ink: #ffffff;
-  --accent-soft: #e2f1ec;
+  --accent-soft: #e4ecfa;
   --focus: #1f5fbf;
   --ok: #1b6339; --ok-soft: #e2f3e8;
   --warn: #7f4800; --warn-soft: #fbefd9;
@@ -35,8 +35,8 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #121517; --surface: #1b1f22; --surface-2: #23282c; --ink: #e9ecee; --ink-2: #c3cacf;
-    --muted: #a3acb2; --line: #2e3438; --line-strong: #434b51; --accent: #4fbba1; --accent-ink: #0b1513;
-    --accent-soft: #183530; --focus: #7fb0ff; --ok: #6fd39a; --ok-soft: #173326; --warn: #f0b768;
+    --muted: #a3acb2; --line: #2e3438; --line-strong: #434b51; --accent: #78a9f2; --accent-ink: #0b1422;
+    --accent-soft: #17263d; --focus: #7fb0ff; --ok: #6fd39a; --ok-soft: #173326; --warn: #f0b768;
     --warn-soft: #3a2b12; --bad: #ff9187; --bad-soft: #3d1c19; --info: #8fc1ef; --info-soft: #1b2b3a;
     --mark: #5a4a10; --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.3);
     --shadow-lg: 0 8px 40px rgba(0, 0, 0, 0.55); color-scheme: dark;
@@ -44,8 +44,8 @@
 }
 :root[data-theme="dark"] {
   --bg: #121517; --surface: #1b1f22; --surface-2: #23282c; --ink: #e9ecee; --ink-2: #c3cacf;
-  --muted: #a3acb2; --line: #2e3438; --line-strong: #434b51; --accent: #4fbba1; --accent-ink: #0b1513;
-  --accent-soft: #183530; --focus: #7fb0ff; --ok: #6fd39a; --ok-soft: #173326; --warn: #f0b768;
+  --muted: #a3acb2; --line: #2e3438; --line-strong: #434b51; --accent: #78a9f2; --accent-ink: #0b1422;
+  --accent-soft: #17263d; --focus: #7fb0ff; --ok: #6fd39a; --ok-soft: #173326; --warn: #f0b768;
   --warn-soft: #3a2b12; --bad: #ff9187; --bad-soft: #3d1c19; --info: #8fc1ef; --info-soft: #1b2b3a;
   --mark: #5a4a10; --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.3);
   --shadow-lg: 0 8px 40px rgba(0, 0, 0, 0.55); color-scheme: dark;
@@ -526,3 +526,6 @@ body.has-player .actionbar { bottom: 132px; }
 .nb-option .grow { min-width: 0; overflow-wrap: anywhere; }
 .nb-option .nb-note { white-space: normal; }
 .nb-option .rbadge { display: inline-block; white-space: nowrap; }
+.phone-home summary { cursor: pointer; font-weight: 600; padding: var(--s1) 0; }
+.phone-home { display: grid; gap: var(--s2); }
+.unreachable { position: sticky; top: 0; z-index: 30; }

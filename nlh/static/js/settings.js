@@ -266,6 +266,14 @@ async function drawPhone(card) {
     const fw = el("p", "hint", firewall);
     fw.id = "phone-firewall-hint";
     card.append(addr, fw);
+    const home = el("details", "phone-home");
+    home.id = "phone-home-help";
+    home.append(el("summary", "", "Put it on the phone's home screen"));
+    home.append(
+      el("p", "hint", "After pairing, add a shortcut so the page opens like an app: on Android, open the browser menu and choose Add to Home screen; on iPhone, tap Share, then Add to Home Screen."),
+      el("p", "hint", "It is a shortcut to this page, not an offline app: it plays only while this laptop is on, the app is running and the phone is on the same Wi-Fi. If the laptop's address changes or the phone is removed here, open the new address or pair again."),
+    );
+    card.append(home);
     const pairBox = el("div", "phone-pair");
     pairBox.id = "phone-pair";
     const pairBtn = button("Pair a phone", { cls: "btn btn-primary", iconName: "plus", onClick: async () => {

@@ -124,7 +124,19 @@ class _PhoneStream:
             close()
 
 
-PHONE_OPEN_STATIC = frozenset({"app.css", "favicon.svg"})
+# Static files a phone may load without the pairing cookie (browsers often fetch the manifest and
+# icons without credentials). None of them holds any data.
+PHONE_OPEN_STATIC = frozenset(
+    {
+        "app.css",
+        "favicon.svg",
+        "manifest.webmanifest",
+        "icons/icon-192.png",
+        "icons/icon-512.png",
+        "icons/icon-maskable-512.png",
+        "icons/apple-touch-icon.png",
+    }
+)
 
 STALE_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>{{APP_NAME}}</title>
@@ -398,6 +410,9 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
 
     @app.get("/static/<path:name>")
     def static_file(name):
+        """App files (the page's code, styles, icons and the home-screen manifest)."""
+        if name == "manifest.webmanifest":
+            return send_from_directory(STATIC, name, mimetype="application/manifest+json")
         return send_from_directory(STATIC, name)
 
     # ------------------------------------------------------------ state
@@ -1315,7 +1330,10 @@ def register_phone_routes(app, phones, phone_page) -> None:
             phones.note_failure(request.remote_addr or "?")
             return phone_page(expired, 410)
         resp = redirect("/", code=303)
-        resp.set_cookie(phone.COOKIE, token, max_age=400 * 86400, httponly=True, samesite="Strict", path="/")
+        # Lax, not Strict: a home-screen shortcut or a link from another app opens the page as a
+        # navigation from outside, and Strict cookies are not sent then (the phone would look unpaired).
+        # Phone requests are read-only GETs and refused otherwise, so Lax opens nothing more.
+        resp.set_cookie(phone.COOKIE, token, max_age=400 * 86400, httponly=True, samesite="Lax", path="/")
         return resp
 
 
