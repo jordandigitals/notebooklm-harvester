@@ -54,10 +54,22 @@ export function renderAccountCard() {
     head.append(refreshAll);
     card.append(head);
     const stale = [...lib.accounts.values()].filter((a) => a.status !== "ok");
-    if (stale.length) card.append(notice("warn", `${stale.map((a) => a.label).join(", ")} ${stale.length === 1 ? "needs" : "need"} attention. Pick the account on the left to sign in again.`));
+    const notes = el("div", "card-notes");
+    if (stale.length) notes.append(notice("warn", `${stale.map((a) => a.label).join(", ")} ${stale.length === 1 ? "needs" : "need"} attention. Pick the account in Accounts and filters to sign in again.`));
     if (lib.neverRefreshed.length) {
       const names = lib.neverRefreshed.map((id) => lib.accounts.get(id)?.label).filter(Boolean);
-      card.append(notice("info", `Not read yet: ${names.join(", ")}. Press Refresh all accounts.`));
+      notes.append(notice("info", `Not read yet: ${names.join(", ")}. Press Refresh all accounts.`));
+    }
+    if (notes.childElementCount) {
+      // Phones: one compact toggle instead of panels of status text above the list.
+      const toggle = button(`${notes.childElementCount === 1 && stale.length ? `${stale.length} needs attention` : "Notes"}`, { cls: "btn btn-sm btn-quiet notes-toggle", iconName: "alert" });
+      toggle.setAttribute("aria-expanded", "false");
+      toggle.addEventListener("click", () => {
+        const open = notes.classList.toggle("is-open");
+        toggle.setAttribute("aria-expanded", String(open));
+      });
+      head.append(toggle);
+      card.append(notes);
     }
     box.append(card);
     return;

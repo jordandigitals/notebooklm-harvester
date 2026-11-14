@@ -75,12 +75,10 @@ async function loadState() {
   acctState.interactive = st.interactive;
   lib.demo = st.demo;
   const banners = $("banners");
-  banners.replaceChildren();
-  const missing = Object.entries(st.tools).filter(([, ok]) => !ok).map(([k]) => k);
-  if (missing.length) banners.append(noticeBanner("bad", `Missing ${missing.join(" and ")}. Install it (see INSTALL.md), then restart the app.`));
-  if (st.demo) banners.append(noticeBanner("info", "Demo mode: made-up accounts and notebooks. Nothing here touches a real Google account."));
+  // Tool and demo banners come from the server inside the page (no shift); only add the rest.
+  banners.querySelector(".portable-banner")?.remove();
   if (st.portable && !st.portable_ack) {
-    const n = noticeBanner("warn", "Portable mode. This copy keeps its data, including your Google sign-ins, in the \"data\" folder beside the app. Do not keep it on a shared drive or a drive you might lose, and do not hand that folder to anyone.");
+    const n = noticeBanner("warn portable-banner", "Portable mode. This copy keeps its data, including your Google sign-ins, in the \"data\" folder beside the app. Do not keep it on a shared drive or a drive you might lose, and do not hand that folder to anyone.");
     n.append(button("I understand", { cls: "btn btn-sm", onClick: async () => { await api("/api/portable-ack", { method: "POST" }); n.remove(); } }));
     banners.append(n);
   }
@@ -281,10 +279,12 @@ async function init() {
   window.addEventListener("popstate", () => { const v = decode(location.search); $("q").value = lib.query; $("sort").value = lib.sort; $("group").value = lib.group; switchView(v, false); apply(); renderFilters(); refreshChrome(); });
 
   if (st.demo) window.__nlhTest = { ...testHooks(), history: historyHooks(), player: playerState };
+  document.querySelector(".app").classList.remove("is-loading");
   document.body.dataset.ready = "1";
 }
 
 init().catch((e) => {
+  document.querySelector(".app")?.classList.remove("is-loading");
   const box = el("div", "notice notice-bad");
   box.append(icon("alert"), el("span", "grow", `The page could not start: ${e.message} Reload the page; if it keeps happening, restart the app.`));
   $("banners").replaceChildren(box);

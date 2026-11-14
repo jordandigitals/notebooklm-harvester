@@ -46,7 +46,7 @@
   <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V4M4 20h16M8 16v-5M12 16V8M16 16v-3"/></symbol>
 </svg>
 
-<div class="app">
+<div class="app is-loading">
   <header class="top">
     <h1 class="brand"><svg class="icon logo" aria-hidden="true"><use href="#i-logo"/></svg>{{APP_NAME}}</h1>
     <div class="searchbox" role="search">
@@ -72,7 +72,7 @@
     </nav>
   </header>
 
-  <div id="banners" class="banners" aria-live="polite"></div>
+  <div id="banners" class="banners" aria-live="polite">{{BANNERS}}</div>
 
   <main class="views">
     <section id="view-library" class="view" aria-label="Library">
@@ -151,10 +151,10 @@
           <div class="resultbar">
             <span id="result-count" role="status" aria-live="polite"></span>
             <span class="spacer"></span>
-            <button id="sel-visible" class="btn btn-ghost btn-sm" type="button">Select all in view</button>
-            <button id="sel-new" class="btn btn-ghost btn-sm" type="button">Select new</button>
-            <button id="sel-invert" class="btn btn-ghost btn-sm" type="button">Invert</button>
-            <button id="group-toggle" class="btn btn-ghost btn-sm is-hidden" type="button">Collapse all</button>
+            <button id="sel-visible" class="btn btn-sm btn-quiet" type="button">Select all in view</button>
+            <button id="sel-new" class="btn btn-sm btn-quiet" type="button">Select new</button>
+            <button id="sel-invert" class="btn btn-sm btn-quiet" type="button">Invert</button>
+            <button id="group-toggle" class="btn btn-sm btn-quiet is-hidden" type="button">Collapse all</button>
           </div>
           <div class="listwrap">
             <div id="vlist" class="vlist" tabindex="0" role="list" aria-label="Audio overviews">

@@ -115,3 +115,50 @@ def test_transactions_from_two_threads_do_not_interleave(ledger):
     assert order == ["worker done", "page done"]
     a = ledger.account(acct.id)
     assert a.label == "from worker" and a.output_dir == "/x"
+
+
+def test_many_threads_read_and_write_at_once(ledger):
+    """Request threads and the worker each get their own connection; nothing hangs or errors."""
+    import threading
+
+    acct = ledger.add_account("p1", "L")
+    errors = []
+
+    def writer(k):
+        try:
+            for i in range(20):
+                with ledger.transaction() as c:
+                    ledger.record(
+                        c,
+                        account_id=acct.id,
+                        notebook_id="nb",
+                        artifact_id=f"w{k}-{i}",
+                        overview_title="T",
+                        notebook_title="N",
+                        created_at=None,
+                        saved_path=f"/x/{k}-{i}.mp3",
+                        size_bytes=1,
+                        duration_s=1.0,
+                        sha256="h",
+                    )
+        except Exception as exc:  # pragma: no cover - reported below
+            errors.append(repr(exc))
+
+    def reader():
+        try:
+            for _ in range(40):
+                ledger.harvests()
+                ledger.accounts()
+                ledger.history_page({"q": "t"}, "saved_desc", 1, 50)
+        except Exception as exc:  # pragma: no cover
+            errors.append(repr(exc))
+
+    threads = [threading.Thread(target=writer, args=(k,)) for k in range(4)]
+    threads += [threading.Thread(target=reader) for _ in range(12)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=60)
+    assert not any(t.is_alive() for t in threads), "a thread hung"
+    assert errors == []
+    assert len(ledger.harvests()) == 80

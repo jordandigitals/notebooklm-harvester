@@ -402,3 +402,33 @@ body.has-player .actionbar { bottom: 132px; }
   .job-items .jh { flex-wrap: wrap; }
   .job-items .jh > span:last-child { max-width: 100%; flex-basis: 100%; }
 }
+
+/* ---------------------------------------------------------------- U4 nits from Chat's U2 review */
+.btn-quiet { border-color: var(--line-strong); background: var(--surface); color: var(--ink); font-weight: 550; }
+.btn-quiet:hover { background: var(--surface-2); }
+.btn-primary-soft { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.btn-primary-soft:hover { filter: brightness(0.97); }
+.hactions { flex-wrap: nowrap; gap: 2px; }
+.htable td:last-child { width: 1%; white-space: nowrap; }
+.menu-link { display: flex; align-items: center; gap: var(--s2); min-height: 40px; padding: 0 var(--s2); border-radius: var(--r-sm); color: inherit; text-decoration: none; }
+.menu-link:hover, .menu-link:focus-visible { background: var(--surface-2); }
+.menu .mono { overflow-wrap: anywhere; max-width: 320px; }
+.folder-line { display: flex; align-items: center; gap: 4px; }
+.stats-grid { max-width: 1280px; }
+@media (min-width: 1024px) {
+  .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stats-grid .span-all { grid-column: 1 / -1; }
+}
+.card-notes { display: grid; gap: var(--s2); }
+.notes-toggle { display: none; }
+@media (max-width: 767px) {
+  .notes-toggle { display: inline-flex; }
+  .card-notes { display: none; }
+  .card-notes.is-open { display: grid; }
+  .account-card { padding: var(--s2) var(--s3); }
+}
+/* first load: the library stays invisible until its first full render, so nothing jumps */
+.app.is-loading .lib { visibility: hidden; }
+.app.is-loading .views { background: linear-gradient(90deg, var(--bg) 0%, var(--surface-2) 50%, var(--bg) 100%); background-size: 200% 100%; animation: shimmer 1.2s linear infinite; }
+.stats-grid { align-items: start; }
+.chart-card { align-content: start; }

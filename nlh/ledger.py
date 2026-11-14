@@ -122,18 +122,36 @@ class Ledger:
 
     def __init__(self, path: Path | None = None):
         self.path = path or paths.ledger_path()
-        self.conn = sqlite3.connect(self.path, check_same_thread=False)
-        # The connection is shared by the page's request threads and the worker; one lock
-        # keeps another thread's commit from landing inside a harvest's transaction.
+        # One SQLite connection per thread: the page's request threads and the worker never
+        # share a connection (sharing one could hang under many simultaneous requests).
+        # Writes still go through one lock, and SQLite's own file lock (with a busy timeout)
+        # keeps connections from stepping on each other.
+        self._local = threading.local()
+        self._all: list[sqlite3.Connection] = []
+        self._all_lock = threading.Lock()
         self.lock = threading.RLock()
-        self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA foreign_keys = ON")
-        self.conn.executescript(SCHEMA)
+        c = self.conn
+        c.execute("PRAGMA journal_mode = WAL")  # readers do not wait for a writer
+        c.executescript(SCHEMA)
         self._migrate()
-        self.conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-        self.conn.commit()
-        # fold(): lower case without accents, for search that ignores both.
-        self.conn.create_function("fold", 1, fold, deterministic=True)
+        c.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        c.commit()
+
+    @property
+    def conn(self) -> sqlite3.Connection:
+        """This thread's connection, opened on first use."""
+        c = getattr(self._local, "conn", None)
+        if c is None:
+            c = sqlite3.connect(self.path, timeout=30, check_same_thread=False)
+            c.row_factory = sqlite3.Row
+            c.execute("PRAGMA foreign_keys = ON")
+            c.execute("PRAGMA busy_timeout = 30000")
+            # fold(): lower case without accents, for search that ignores both.
+            c.create_function("fold", 1, fold, deterministic=True)
+            self._local.conn = c
+            with self._all_lock:
+                self._all.append(c)
+        return c
 
     def _migrate(self) -> None:
         """Additive upgrades only: never rewrites or deletes rows."""
@@ -142,8 +160,15 @@ class Ledger:
             self.conn.execute("ALTER TABLE harvests ADD COLUMN origin TEXT NOT NULL DEFAULT 'harvest'")
 
     def close(self) -> None:
-        """Close the connection."""
-        self.conn.close()
+        """Close every connection this ledger opened."""
+        with self._all_lock:
+            conns, self._all = self._all, []
+        for c in conns:
+            try:
+                c.close()
+            except sqlite3.Error:
+                pass
+        self._local = threading.local()
 
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:

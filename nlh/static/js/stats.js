@@ -64,6 +64,7 @@ function columns(title, entries) {
     }
   });
   card.append(chart, table(title, entries, (e) => `${e.files} files, ${e.hours.toFixed(1)} h`));
+  card.classList.add("span-all");
   return card;
 }
 
@@ -102,9 +103,12 @@ export async function renderStats() {
       s.success_rate === null ? "" : `${s.attempts.saved.toLocaleString()} saved, ${s.attempts.failed.toLocaleString()} failed`),
     tile("Average download", s.avg_download_s === null ? "Not measured" : `${s.avg_download_s.toFixed(1)} s`),
   );
+  wrap.classList.add("stats-grid");
+  intro.classList.add("span-all");
+  tiles.classList.add("span-all");
   wrap.append(intro, tiles,
-    hbars("By account", s.by_account, (e) => e.files, (e) => `${e.files} files, ${e.hours.toFixed(1)} h`),
-    hbars("Top notebooks", s.by_notebook, (e) => e.files, (e) => `${e.files} files, ${size(e.bytes)}`),
-    columns("By month saved", s.by_month));
+    hbars("Saved files by account", s.by_account, (e) => e.files, (e) => `${e.files} files, ${e.hours.toFixed(1)} h`),
+    hbars("Top notebooks by saved files", s.by_notebook, (e) => e.files, (e) => `${e.files} files, ${size(e.bytes)}`),
+    columns("Saved files by month", s.by_month));
   view.replaceChildren(wrap);
 }
