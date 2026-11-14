@@ -24,7 +24,7 @@ import webbrowser
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from flask import Flask, abort, jsonify, redirect, request, send_from_directory
+from flask import Flask, Response, abort, jsonify, redirect, request, send_file, send_from_directory
 
 from nlh import APP_NAME, __version__, accounts, adapter, demo, harvest, media, naming, paths
 from nlh import settings as app_settings
@@ -226,7 +226,12 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
     def state():
         current = [worker.jobs[j].view() for j in worker.order[-20:]]
         portable = paths.portable_home() is not None and not os.environ.get("NLH_HOME")
+        try:
+            notebook_base = adapter.notebooklm_url()
+        except Exception:  # library missing or changed: the page hides the link
+            notebook_base = ""
         return jsonify(
+            notebook_base=notebook_base,
             demo=demo.enabled(),
             interactive=adapter.interactive_available(),
             windows=paths.is_windows(),
@@ -646,6 +651,208 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
                 for h in led.harvests(account_id)
             ]
         )
+
+    # ------------------------------------------------------------ history pages, export, stats, player (U2)
+
+    def history_filters() -> dict:
+        """History filters from the query string (all bound as SQL parameters later)."""
+        a = request.args
+        f = {
+            "accounts": [int(x) for x in a.get("accounts", "").split(",") if x.strip().isdigit()],
+            "notebooks": [x for x in a.getlist("notebook") if x],
+            "q": a.get("q", "")[:200],
+        }
+        for key in ("saved_from", "saved_to"):
+            v = a.get(key, "")
+            if re.fullmatch(r"\d{4}-\d{2}-\d{2}", v):
+                f[key] = v
+        for key in ("size_min", "size_max", "length_min", "length_max"):
+            try:
+                if a.get(key, "") != "":
+                    f[key] = float(a[key])
+            except ValueError:
+                pass
+        return f
+
+    def playable(h, acct) -> tuple[bool, str]:
+        """May the player stream this row? Only a ledger path inside the account's output folder."""
+        if not acct or not acct.output_dir:
+            return False, "No output folder is set for this account."
+        try:
+            path = Path(h.saved_path).resolve(strict=True)
+            out = Path(acct.output_dir).resolve(strict=True)
+        except (OSError, RuntimeError):
+            return False, "The file is not there."
+        if path.suffix.lower() != ".mp3" or not path.is_file():
+            return False, "Only saved MP3 files can be played."
+        if not path.is_relative_to(out):
+            return False, "This file is outside the account's current output folder. Use Show in folder."
+        return True, ""
+
+    def history_row(h, accts: dict) -> dict:
+        acct = accts.get(h.account_id)
+        present = h.file_present
+        ok, why = playable(h, acct) if present else (False, "")
+        return {
+            "id": h.id,
+            "account_id": h.account_id,
+            "account": acct.label if acct else "?",
+            "title": h.overview_title,
+            "notebook": h.notebook_title,
+            "notebook_id": h.notebook_id,
+            "artifact_id": h.artifact_id,
+            "created_at": h.created_at,
+            "saved_at": h.saved_at,
+            "path": h.saved_path,
+            "file_name": Path(h.saved_path).name,
+            "folder": str(Path(h.saved_path).parent),
+            "duration_s": h.duration_s,
+            "size_bytes": h.size_bytes,
+            "origin": h.origin,
+            "present": present,
+            "reachable": present or harvest.folder_reachable(h.saved_path, acct.output_dir if acct else None),
+            "playable": ok,
+            "play_reason": why,
+            "sha256": h.sha256,
+        }
+
+    @app.get("/api/history/page")
+    def history_page():
+        """One page of history, filtered and sorted by the server (pagination ruling 2)."""
+        accts = {a.id: a for a in led.accounts()}
+        sort = request.args.get("sort", "saved_desc")
+        page = request.args.get("page", 1, type=int)
+        size = request.args.get("size", 50, type=int)
+        if size not in app_settings.PAGE_SIZES:
+            size = 50
+        rows, total = led.history_page(history_filters(), sort, page, size)
+        return jsonify(total=total, page=page, size=size, rows=[history_row(h, accts) for h in rows])
+
+    @app.get("/api/history/notebooks")
+    def history_notebooks():
+        """Notebook names in the ledger with counts (for the history filter picker)."""
+        counts: dict[str, int] = {}
+        for h in led.harvests():
+            counts[h.notebook_title] = counts.get(h.notebook_title, 0) + 1
+        return jsonify(
+            sorted(
+                ({"name": k, "count": v} for k, v in counts.items()), key=lambda x: (-x["count"], x["name"])
+            )
+        )
+
+    EXPORT_COLUMNS = [
+        "id",
+        "account_id",
+        "notebook_id",
+        "artifact_id",
+        "overview_title",
+        "notebook_title",
+        "created_at",
+        "saved_path",
+        "size_bytes",
+        "duration_s",
+        "sha256",
+        "saved_at",
+        "origin",
+    ]
+
+    @app.get("/api/export.<fmt>")
+    def export(fmt):
+        """The whole filtered ledger as CSV or JSON: ledger columns only, never session data."""
+        rows = led.history_all(history_filters(), request.args.get("sort", "saved_desc"))
+        records = []
+        for h in rows:
+            full = dataclasses.asdict(h)
+            records.append({c: full[c] for c in EXPORT_COLUMNS})
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        if fmt == "json":
+            body_text = json.dumps(records, ensure_ascii=False, indent=2)
+            mime = "application/json"
+        elif fmt == "csv":
+            import csv
+            import io
+
+            buf = io.StringIO()
+            w = csv.DictWriter(buf, fieldnames=EXPORT_COLUMNS)
+            w.writeheader()
+            w.writerows(records)
+            body_text = buf.getvalue()
+            mime = "text/csv"
+        else:
+            abort(404)
+        return Response(
+            body_text,
+            mimetype=mime,
+            headers={"Content-Disposition": f'attachment; filename="notebooklm-harvest-{stamp}.{fmt}"'},
+        )
+
+    @app.get("/api/stats")
+    def stats():
+        """Totals and breakdowns over the whole filtered ledger, plus attempt statistics."""
+        f = history_filters()
+        rows = led.history_all(f)
+        accts = {a.id: a.label for a in led.accounts()}
+        by_account: dict[str, dict] = {}
+        by_notebook: dict[str, dict] = {}
+        by_month: dict[str, dict] = {}
+        for h in rows:
+            for bucket, key in (
+                (by_account, accts.get(h.account_id, "?")),
+                (by_notebook, h.notebook_title),
+                (by_month, (h.saved_at or "")[:7]),
+            ):
+                b = bucket.setdefault(key, {"files": 0, "hours": 0.0, "bytes": 0})
+                b["files"] += 1
+                b["hours"] += (h.duration_s or 0) / 3600
+                b["bytes"] += h.size_bytes or 0
+        att = led.attempt_stats(f.get("accounts") or None)
+        done = att["saved"] + att["failed"]
+        return jsonify(
+            totals={
+                "files": len(rows),
+                "hours": round(sum((h.duration_s or 0) for h in rows) / 3600, 2),
+                "bytes": sum(h.size_bytes or 0 for h in rows),
+            },
+            by_account=sorted(({"name": k, **v} for k, v in by_account.items()), key=lambda x: -x["files"]),
+            by_notebook=sorted(({"name": k, **v} for k, v in by_notebook.items()), key=lambda x: -x["files"])[
+                :10
+            ],
+            by_month=sorted(({"name": k, **v} for k, v in by_month.items()), key=lambda x: x["name"]),
+            success_rate=round(att["saved"] / done, 4) if done else None,
+            attempts={"saved": att["saved"], "failed": att["failed"]},
+            avg_download_s=round(att["avg_download_s"], 1) if att["avg_download_s"] else None,
+        )
+
+    @app.get("/api/play/<int:harvest_id>")
+    def play(harvest_id):
+        """Stream a saved MP3 (HTTP Range supported). No path ever comes from the page."""
+        h = led.harvest_by_id(harvest_id)
+        if not h:
+            abort(404)
+        ok, why = playable(h, led.account(h.account_id))
+        if not ok:
+            return jsonify(error=why or "That file cannot be played."), 403
+        resp = send_file(Path(h.saved_path).resolve(), mimetype="audio/mpeg", conditional=True, max_age=0)
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+
+    @app.post("/api/history/<int:harvest_id>/redownload")
+    def redownload(harvest_id):
+        """Download a missing file again: only when its folder is reachable (FINDING-1)."""
+        h = led.harvest_by_id(harvest_id)
+        if not h:
+            abort(404)
+        acct = led.account(h.account_id)
+        if h.file_present:
+            return jsonify(error="The file is already there."), 400
+        if not harvest.folder_reachable(h.saved_path, acct.output_dir if acct else None):
+            return jsonify(
+                error="The folder that holds this file is not reachable. Plug in the drive first."
+            ), 400
+        job, err = start_harvest([(h.account_id, h.artifact_id)], {h.artifact_id})
+        if err:
+            return jsonify(error=err), 400
+        return jsonify(job.view())
 
     def allowed_folders() -> set[str]:
         """Folders the page may open: account output folders and folders of saved files."""

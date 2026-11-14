@@ -116,6 +116,17 @@ def capture(out_dir: Path, prefix: str) -> list[str]:
             sw = pg.evaluate("document.documentElement.scrollWidth")
             if sw > width:
                 notes.append(f"OVERFLOW {name} {width}px {scheme}: scrollWidth {sw}")
+            wide = pg.evaluate(
+                "() => [...document.querySelectorAll("
+                "'.views, .view:not(.is-hidden), .view:not(.is-hidden) *')]"
+                ".filter(e => e.clientWidth > 1 && e.scrollWidth > e.clientWidth + 1"
+                " && getComputedStyle(e).overflowX !== 'visible'"
+                " && !e.matches('.hwrap, .sr-only, .rtitle, .rmeta, .rmeta > span, .lbl, .gname, .an, .ae,"
+                " .pl-title, .pl-sub, .hbar-name, .chip .lbl, .check .lbl, .folder code, .tt'))"
+                ".map(e => e.tagName + '#' + e.id + '.' + e.className)"
+            )
+            if wide:
+                notes.append(f"OVERFLOW {name} {width}px {scheme}: {wide[:3]}")
             path = tmp / f"{name}-{width}-{scheme}.png"
             pg.screenshot(path=str(path), full_page=full)
             ctx.close()
@@ -130,6 +141,94 @@ def capture(out_dir: Path, prefix: str) -> list[str]:
             return out.name
 
         made = []
+        if prefix.endswith("-u2-mac"):
+            hist = "v=history"
+            made.append(
+                pair(
+                    1,
+                    "history",
+                    "light",
+                    query=hist,
+                    setup=lambda pg: pg.wait_for_selector(".hcard, .htable"),
+                )
+            )
+            made.append(
+                pair(
+                    2, "history", "dark", query=hist, setup=lambda pg: pg.wait_for_selector(".hcard, .htable")
+                )
+            )
+            made.append(
+                pair(
+                    3,
+                    "history-filters",
+                    "light",
+                    query=hist,
+                    setup=lambda pg: (pg.wait_for_selector("#h-filters"), pg.click("#h-filters")),
+                )
+            )
+            made.append(
+                pair(
+                    4,
+                    "export-menu",
+                    "dark",
+                    query=hist,
+                    setup=lambda pg: (
+                        pg.wait_for_selector(".htable, .hcard"),
+                        pg.locator("#view-history button", has_text="Export").click(),
+                    ),
+                )
+            )
+            made.append(
+                pair(
+                    5,
+                    "player",
+                    "light",
+                    query=hist,
+                    setup=lambda pg: (
+                        pg.wait_for_selector(".hactions"),
+                        pg.locator(".hactions button", has_text="Play").first.click(),
+                        pg.wait_for_timeout(1500),
+                    ),
+                )
+            )
+            made.append(
+                pair(
+                    6,
+                    "stats",
+                    "light",
+                    query="v=stats",
+                    full=True,
+                    setup=lambda pg: pg.wait_for_selector(".tile"),
+                )
+            )
+            made.append(
+                pair(
+                    7,
+                    "stats",
+                    "dark",
+                    query="v=stats",
+                    full=True,
+                    setup=lambda pg: pg.wait_for_selector(".tile"),
+                )
+            )
+            made.append(
+                pair(
+                    8,
+                    "history-search-empty",
+                    "light",
+                    query=hist,
+                    setup=lambda pg: (
+                        pg.wait_for_selector("#view-history input"),
+                        pg.fill("#view-history input[type=search]", "zzznothing"),
+                        pg.wait_for_timeout(800),
+                    ),
+                )
+            )
+            b.close()
+            for f in tmp.iterdir():
+                f.unlink()
+            tmp.rmdir()
+            return made + notes
         made.append(pair(1, "library", "light"))
         made.append(pair(2, "library", "dark"))
         made.append(
