@@ -9,6 +9,7 @@ from __future__ import annotations
 import dataclasses
 import hmac
 import json
+import logging
 import os
 import queue
 import re
@@ -1134,10 +1135,21 @@ def _running_url() -> str | None:
     return None
 
 
+def quiet_request_log() -> None:
+    """Stop the web server library writing one line per request to stderr.
+
+    Those lines carry the page address with its key (?t=...), so they must not be
+    printed; and when stderr is a pipe nobody reads (a Windows pipe holds about 4 KB)
+    the server blocks once it fills. Warnings and errors still go through.
+    """
+    logging.getLogger("werkzeug").setLevel(logging.WARNING)
+
+
 def serve(open_browser: bool = True) -> int:
     """Start the local server and open the page in the default browser."""
     from werkzeug.serving import make_server
 
+    quiet_request_log()
     if demo.enabled():
         demo.prepare()  # synthetic data in a temporary app home; never the real one
     lock = paths.AppLock()
