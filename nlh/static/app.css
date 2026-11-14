@@ -475,3 +475,20 @@ body.has-player .actionbar { bottom: 132px; }
 #view-studio { overflow-y: auto; }
 .studio-card textarea.input { padding: var(--s2) var(--s3); }
 .set-card .num { width: 7rem; }
+.make-panel { display: grid; gap: var(--s3); padding: var(--s3); border-top: 1px solid var(--line); margin-top: var(--s2); }
+.make-rows { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--s3); }
+.make-row { display: grid; gap: var(--s2); padding: var(--s3); border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface-2); min-width: 0; }
+.make-row .check .lbl { white-space: normal; overflow-wrap: anywhere; font-weight: 600; }
+.make-opts { display: grid; gap: var(--s2); grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+.make-opts .select, .make-opts .input { width: 100%; }
+.queue-head { align-items: center; }
+.queue-status { font-weight: 600; overflow-wrap: anywhere; }
+.queue-rows { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--s2); }
+.queue-row { display: grid; gap: var(--s1); padding: var(--s3); border: 1px solid var(--line); border-radius: var(--r-sm); min-width: 0; }
+.queue-row[data-state="generating"], .queue-row[data-state="submitting"] { border-color: var(--accent); }
+.queue-top { display: flex; gap: var(--s2); align-items: flex-start; min-width: 0; }
+.queue-title { font-weight: 600; overflow-wrap: anywhere; }
+.queue-meta, .queue-msg { overflow-wrap: anywhere; font-size: 0.85rem; }
+.queue-msg { color: var(--ink-2); }
+.queue-finished { display: grid; gap: var(--s2); }
+.queue-finished summary { cursor: pointer; font-weight: 600; padding: var(--s1) 0; }

@@ -92,6 +92,8 @@ def regex_hits(name: str, text: str) -> list[str]:
         if name in STUDIO_CALLERS:
             for call in STUDIO_ADAPTER_CALLS:
                 probe = probe.replace(call, "adapter.OK")
+        if name == "demo.py":  # demo mode replaces the two Studio functions with local fakes
+            probe = re.sub(r"^\s*adapter\.(generate_audio|ask_for_plan) = \w+\s*$", "", probe)
         if any(re.search(p, probe) for p in FORBIDDEN):
             hits.append(f"{name}:{n}: {line.strip()}")
         if name == "adapter.py" and CLI_WRITE_WORDS.search(code):

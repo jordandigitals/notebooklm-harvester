@@ -320,7 +320,49 @@ def install_fake_adapter() -> None:
         shape = sum(map(ord, notebook_id)) % 4
         return adapter.PlanAnswer(PLAN_SHAPES[shape])
 
+    generated: dict[str, dict] = {}  # task id -> {notebook_id, title, started}
+
+    def generate_audio(
+        profile_name, notebook_id, focus, audio_format="deep_dive", audio_length="default", language="en"
+    ):
+        # Focus text containing "limit" stands in for Google's usage-limit refusal.
+        if "limit" in (focus or "").lower():
+            raise adapter.AdapterError(
+                "NotebookLM refused because of a usage limit. Studio stops for this account today.", "limit"
+            )
+        task = f"demo-gen-{len(generated) + 1:04d}-{abs(hash((notebook_id, focus))) % 10000:04d}"
+        title = (focus or "Generated overview").split(".")[0][:80].strip() or "Generated overview"
+        generated[task] = {
+            "notebook_id": notebook_id,
+            "title": title,
+            "started": __import__("time").monotonic(),
+        }
+        return adapter.Submitted(task, "pending")
+
+    def list_audio_overviews(profile_name, notebook):
+        import time as _t
+
+        gen_s = float(os.environ.get("NLH_DEMO_GEN_S", "6"))
+        out = []
+        for task, g in generated.items():
+            if g["notebook_id"] != notebook.id:
+                continue
+            done = _t.monotonic() - g["started"] >= gen_s
+            out.append(
+                adapter.AudioOverview(
+                    task,
+                    g["title"] if done else notebook.title,  # the real title arrives at completion
+                    notebook.id,
+                    notebook.title,
+                    datetime.now(UTC).replace(microsecond=0).isoformat(),
+                    "completed" if done else "in_progress",
+                )
+            )
+        return out
+
     adapter.ask_for_plan = ask_for_plan
+    adapter.generate_audio = generate_audio
+    adapter.list_audio_overviews = list_audio_overviews
     adapter.list_library = list_library
     adapter.download_overview = download_overview
     adapter.check_session = lambda name: adapter.SessionStatus("ok", "Signed in (demo).", None)

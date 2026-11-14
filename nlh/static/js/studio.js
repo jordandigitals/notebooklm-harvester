@@ -3,7 +3,8 @@
 // for you: pick one every time.
 import { api } from "./api.js";
 import { $, el, button, plural, shortDate } from "./dom.js";
-import { toast, dialog } from "./ui.js";
+import { toast, dialog, confirmDialog } from "./ui.js";
+import { play } from "./player.js";
 
 const st = {
   data: null, // /api/studio/state
@@ -15,6 +16,10 @@ const st = {
   asking: null, // job id while a plan request runs
   answer: null, // {raw, parsed, notebook_id, notebook_title, account_id}
   draft: [], // editable rows [{title, focus}]
+  queue: null, // /api/studio/queue
+  making: null, // plan id whose "make overviews" panel is open
+  makeRows: [], // per-item choices for that plan
+  pollTimer: null,
 };
 
 const FORMAT_TEXT = { deep_dive: "Deep dive", brief: "Brief", critique: "Critique", debate: "Debate" };
@@ -41,6 +46,7 @@ export async function renderStudio() {
     view.replaceChildren(el("p", "error", e.message));
     return;
   }
+  try { st.queue = await api("/api/studio/queue"); } catch (e) { st.queue = null; }
   if (!st.question) st.question = st.data.default_question;
   if (st.account !== null && !chosenAccount()) st.account = null;
   draw();
@@ -54,10 +60,15 @@ function draw() {
     el("h1", "view-title", "Studio"),
     el("p", "hint", "Ask a notebook how its sources split into audio overviews, edit the plan, then keep it. Nothing is asked or made until you click."),
   );
-  wrap.append(intro, accountCard(), notebookCard());
+  wrap.append(intro);
+  if (st.queue && st.queue.rows.length) wrap.append(queueCard());
+  wrap.append(accountCard(), notebookCard());
   if (st.answer || st.asking) wrap.append(planCard());
   wrap.append(keptCard());
+  const keepFocus = document.activeElement && document.activeElement.id;
   view.replaceChildren(wrap);
+  if (keepFocus && $(keepFocus)) $(keepFocus).focus();
+  schedulePoll();
 }
 
 // ------------------------------------------------------------ account
@@ -337,19 +348,279 @@ function keptCard() {
       ol.append(item);
     }
     const actions = el("div", "row");
+    if (st.making !== p.id) {
+      const mk = button("Make overviews...", { cls: "btn btn-sm btn-primary", iconName: "studio", title: `Choose which overviews to make for ${p.notebook_title}`, onClick: () => openMake(p) });
+      mk.dataset.plan = String(p.id);
+      actions.append(mk);
+    }
     actions.append(button("Hide", { cls: "btn btn-sm btn-ghost", title: `Hide the plan for ${p.notebook_title}`, onClick: async () => {
       try { await api(`/api/studio/plans/${p.id}/archive`, { method: "POST" }); await renderStudio(); } catch (e) { toast(e.message, "bad"); }
     } }));
     li.append(head, ol, actions);
+    if (st.making === p.id) li.append(makePanel(p));
     list.append(li);
   }
   c.append(list);
   return c;
 }
 
+// ------------------------------------------------------------ S2: make overviews from a plan
+
+function openMake(p) {
+  st.making = p.id;
+  st.makeRows = p.items.map((it) => ({ ...it, on: true, audio_format: "deep_dive", audio_length: "long", language: st.data.language }));
+  draw();
+  document.querySelector(".make-panel input")?.focus();
+}
+
+function selectField(label, value, options, onChange) {
+  const lab = el("label", "field", label);
+  const sel = el("select", "select");
+  for (const [v, t] of options) { const o = el("option", "", t); o.value = v; sel.append(o); }
+  sel.value = value;
+  sel.addEventListener("change", () => onChange(sel.value));
+  lab.append(sel);
+  return lab;
+}
+
+function makePanel(p) {
+  const box = el("div", "make-panel");
+  box.setAttribute("role", "group");
+  box.setAttribute("aria-label", `Make overviews for ${p.notebook_title}`);
+  const used = (st.queue && st.queue.used_today[p.account_id]) || 0;
+  const cap = st.data.cap;
+  const info = el("p", "studio-cap make-cap");
+  const update = () => {
+    const n = st.makeRows.filter((r) => r.on).length;
+    info.textContent = `${used} of ${cap} made today with this account. ${n} chosen.`
+      + (used + n > cap ? ` Only ${Math.max(0, cap - used)} can go today; the rest wait in the queue for another day.` : "");
+    add.disabled = n === 0;
+  };
+  box.append(info);
+  const list = el("ol", "make-rows");
+  st.makeRows.forEach((r, i) => {
+    const li = el("li", "make-row");
+    const chk = el("label", "check");
+    const box2 = el("input");
+    box2.type = "checkbox";
+    box2.checked = r.on;
+    box2.addEventListener("change", () => { r.on = box2.checked; update(); });
+    chk.append(box2, el("span", "lbl make-title", r.title));
+    const focus = el("label", "field", "Focus");
+    const ta = el("textarea", "input");
+    ta.rows = 2;
+    ta.maxLength = 2000;
+    ta.value = r.focus;
+    ta.addEventListener("input", () => { r.focus = ta.value; });
+    focus.append(ta);
+    const opts = el("div", "make-opts");
+    opts.append(
+      selectField("Format", r.audio_format, st.data.formats.map((f) => [f, FORMAT_TEXT[f]]), (v) => { r.audio_format = v; }),
+      selectField("Length", r.audio_length, st.data.lengths.map((f) => [f, LENGTH_TEXT[f]]), (v) => { r.audio_length = v; }),
+    );
+    const lang = el("label", "field", "Language");
+    const li2 = el("input", "input num");
+    li2.value = r.language;
+    li2.maxLength = 12;
+    li2.spellcheck = false;
+    li2.addEventListener("input", () => { r.language = li2.value.trim(); });
+    lang.append(li2);
+    opts.append(lang);
+    li.append(chk, focus, opts);
+    li.dataset.index = String(i);
+    list.append(li);
+  });
+  box.append(list);
+  const add = button("Add to the queue", { cls: "btn btn-primary", iconName: "plus", onClick: () => enqueue(p) });
+  add.id = "studio-enqueue";
+  const cancel = button("Close", { cls: "btn btn-ghost", onClick: () => { st.making = null; draw(); } });
+  const row = el("div", "row");
+  row.append(add, cancel);
+  box.append(row, el("p", "hint", "Adding to the queue sends nothing. Requests go one at a time only after you click Start in the queue."));
+  update();
+  return box;
+}
+
+async function enqueue(p) {
+  const items = st.makeRows.filter((r) => r.on).map((r) => ({ title: r.title, focus: r.focus.trim(), audio_format: r.audio_format, audio_length: r.audio_length, language: r.language }));
+  try {
+    st.queue = await api("/api/studio/queue", { method: "POST", body: { plan_id: p.id, items } });
+    toast(`${plural(items.length, "overview")} added to the queue. Click Start when you are ready.`);
+    st.making = null;
+    draw();
+    $("studio-start")?.focus();
+  } catch (e) { toast(e.message, "bad"); }
+}
+
+// ------------------------------------------------------------ S2: the queue
+
+const QSTATE = {
+  queued: ["Waiting", "new"],
+  submitting: ["Sending", "running"],
+  generating: ["Being made", "running"],
+  done: ["Done", "done"],
+  failed: ["Failed", "failed"],
+  cancelled: ["Dropped", "cancelled"],
+  paused_limit: ["Paused: limit", "needs_sign_in"],
+  needs_review: ["Check needed", "needs_sign_in"],
+};
+
+function mmss(s) {
+  const t = Math.max(0, Math.round(s));
+  return t >= 60 ? `${Math.floor(t / 60)} min ${String(t % 60).padStart(2, "0")} s` : `${t} s`;
+}
+
+function queueCard() {
+  const q = st.queue;
+  const r = q.runner;
+  const c = card("Queue", null, "studio-queue");
+  c.id = "studio-queue";
+  const head = el("div", "row queue-head");
+  const status = el("p", "grow queue-status");
+  status.id = "studio-run-status";
+  status.setAttribute("aria-live", "polite");
+  let text = r.message || "";
+  if (r.running && r.pause_left_s !== null) text = `Pausing between requests: next in ${mmss(r.pause_left_s)}.`;
+  else if (r.running && r.step) text = `${r.step}. ${r.message || ""}`;
+  else if (!r.running && !text) text = "Not running. Nothing is sent until you click Start.";
+  status.textContent = text;
+  head.append(status);
+  const waiting = q.rows.filter((x) => x.state === "queued").length;
+  const making = q.rows.filter((x) => x.state === "generating").length;
+  if (!r.running && (waiting || making)) {
+    const start = button(making && !waiting ? "Resume" : waiting && making ? "Resume and start" : "Start", { cls: "btn btn-primary", iconName: "play", onClick: () => runQueue() });
+    start.id = "studio-start";
+    head.append(start);
+  }
+  if (r.running && !r.cancelling) {
+    const stop = button("Cancel", { cls: "btn", iconName: "x", onClick: () => cancelQueue() });
+    stop.id = "studio-cancel";
+    head.append(stop);
+  }
+  c.append(head);
+  if (r.running) {
+    const bar = el("div", "bar indeterminate");
+    bar.setAttribute("role", "progressbar");
+    bar.setAttribute("aria-label", "Studio queue running");
+    bar.append(el("span", "bar-fill"));
+    c.append(bar);
+  }
+  if (q.limited_today.length) {
+    const names = q.limited_today.map((id) => (st.data.accounts.find((a) => a.id === id) || {}).label).filter(Boolean).join(", ");
+    const n = el("div", "notice notice-warn");
+    n.append(el("span", "grow", `NotebookLM's usage limit was reached today for ${names}. Nothing more is sent for it until tomorrow.`));
+    c.append(n);
+  }
+  // Rows that still need something first, in queue order; finished ones after, newest first.
+  const FIN = ["done", "failed", "cancelled"];
+  const active = q.rows.filter((x) => !FIN.includes(x.state));
+  const finished = q.rows.filter((x) => FIN.includes(x.state)).reverse();
+  if (active.length) {
+    const list = el("ol", "queue-rows");
+    list.id = "studio-queue-rows";
+    for (const row of active) list.append(queueRow(row, r));
+    c.append(list);
+  }
+  if (finished.length) {
+    const box = el("details", "queue-finished");
+    box.open = !active.length || st.finishedOpen === true;
+    box.addEventListener("toggle", () => { st.finishedOpen = box.open; });
+    const saved = finished.filter((x) => x.state === "done").length;
+    box.append(el("summary", "", `Recently finished (${finished.length}${saved ? `, ${saved} done` : ""})`));
+    const list = el("ul", "queue-rows");
+    for (const row of finished.slice(0, 30)) list.append(queueRow(row, r));
+    box.append(list);
+    c.append(box);
+  }
+  return c;
+}
+
+function queueRow(row, r) {
+  const li = el("li", "queue-row");
+  li.dataset.state = row.state;
+  li.dataset.id = String(row.id);
+  const [label, cls] = QSTATE[row.state] || [row.state, "unknown"];
+  const top = el("div", "queue-top");
+  const name = el("span", "queue-title grow", row.title);
+  const pillEl = el("span", `pill st-${cls}`, label);
+  top.append(name, pillEl);
+  const acct = st.data.accounts.find((a) => a.id === row.account_id);
+  const meta = el("p", "hint queue-meta", `${row.notebook_title} · ${FORMAT_TEXT[row.audio_format]}, ${LENGTH_TEXT[row.audio_length].toLowerCase()}, ${row.language}${acct ? ` · ${acct.label}` : ""}`);
+  li.append(top, meta);
+  if (row.message) li.append(el("p", "queue-msg", row.message));
+  const actions = el("div", "row queue-actions");
+  const busy = r.running && r.current === row.id;
+  if (row.state === "done" && row.harvest_id) {
+    actions.append(button("Play", { cls: "btn btn-sm btn-primary", iconName: "play", title: `Play ${row.title}`, onClick: () => play(row.harvest_id, row.title, row.notebook_title) }));
+  }
+  if (row.state === "needs_review") {
+    actions.append(button("Check NotebookLM", { cls: "btn btn-sm btn-primary", iconName: "search", title: `Check whether ${row.title} was made`, onClick: () => rowAction(row, "check") }));
+  }
+  if (["failed", "cancelled", "paused_limit"].includes(row.state)) {
+    actions.append(button("Queue again", { cls: "btn btn-sm", iconName: "refresh", title: `Queue ${row.title} again`, onClick: () => rowAction(row, "requeue") }));
+  }
+  if (["queued", "generating", "needs_review", "paused_limit"].includes(row.state) && !busy) {
+    actions.append(button("Drop", { cls: "btn btn-sm btn-ghost", iconName: "x", title: `Drop ${row.title}`, onClick: () => rowAction(row, "drop") }));
+  }
+  if (actions.children.length) li.append(actions);
+  return li;
+}
+
+async function runQueue() {
+  const waiting = st.queue.rows.filter((x) => x.state === "queued").length;
+  if (waiting) {
+    const ok = await confirmDialog(
+      "Start making overviews?",
+      `This sends up to ${plural(waiting, "request")} to NotebookLM, one at a time with a pause between them. Each takes a few minutes and counts toward the daily limit of ${st.queue.cap} per account. You can cancel at any time.`,
+      "Start",
+    );
+    if (!ok) return;
+  }
+  try { st.queue = await api("/api/studio/run", { method: "POST" }); draw(); } catch (e) { toast(e.message, "bad"); }
+}
+
+async function cancelQueue() {
+  try { st.queue = await api("/api/studio/cancel", { method: "POST" }); draw(); } catch (e) { toast(e.message, "bad"); }
+}
+
+async function rowAction(row, what) {
+  try {
+    const r = await api(`/api/studio/queue/${row.id}/${what}`, { method: "POST" });
+    st.queue = r;
+    if (what === "check") toast(r.found ? "Found in NotebookLM. Click Resume to collect it." : "Not found, so it was not made. Use Queue again to send it.", r.found ? "ok" : "warn");
+    draw();
+  } catch (e) { toast(e.message, "bad"); }
+}
+
+function schedulePoll() {
+  clearTimeout(st.pollTimer);
+  const q = st.queue;
+  if (!q || !q.runner.running) return;
+  st.pollTimer = setTimeout(async () => {
+    if ($("view-studio").classList.contains("is-hidden")) { schedulePoll(); return; }
+    try {
+      const before = q.runner.running;
+      st.queue = await api("/api/studio/queue");
+      if (before && !st.queue.runner.running) {
+        st.data = await api("/api/studio/state");
+        toast(st.queue.runner.message || "The queue stopped.", "ok");
+      }
+    } catch (e) { /* keep the last view; try again */ }
+    const old = $("studio-queue");
+    if (st.queue.runner.running && old) {
+      // Only the queue card changes while it runs; typing elsewhere is never disturbed.
+      const focusId = document.activeElement && old.contains(document.activeElement) ? document.activeElement.id : null;
+      old.replaceWith(queueCard());
+      if (focusId && $(focusId)) $(focusId).focus();
+      schedulePoll();
+    } else draw();
+  }, 1000);
+}
+
 /** Demo-mode test hooks. */
 export function studioHooks() {
   return {
     state: () => ({ account: st.account, notebook: st.notebook, asking: st.asking, rows: st.draft.length, answer: !!st.answer }),
+    queue: () => (st.queue ? { running: st.queue.runner.running, states: st.queue.rows.map((r) => r.state) } : null),
   };
 }
