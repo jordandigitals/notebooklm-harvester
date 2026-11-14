@@ -63,12 +63,59 @@ def is_private_lan(addr: str) -> bool:
 
 
 TUNNEL_PREFIXES = ("utun", "tun", "tap", "wg", "ppp", "ipsec", "gif", "stf", "zt", "tailscale", "nord")
+# Windows names adapters "Local Area Connection 4" and so on, so the adapter's description
+# ("TAP-NordVPN Windows Adapter V9", "NordLynx Tunnel", "WireGuard Tunnel") is checked too.
+TUNNEL_WORDS = (
+    "tap-",
+    "tap adapter",
+    "tun driver",
+    "tunnel",
+    "wintun",
+    "wireguard",
+    "nordlynx",
+    "openvpn",
+    "vpn",
+    "tailscale",
+    "zerotier",
+)
+_WIN_IFACE_CACHE: dict[str, str | None] = {}
 WATCH_S = 10.0
 
 
-def interface_of(addr: str) -> str | None:
-    """The network interface that holds an address (macOS and Linux; None if unknown)."""
+def _windows_interface(addr: str) -> str | None:
+    """ "<alias>|<description>" of the Windows adapter holding addr, or None (cached per address).
+
+    Windows' own lookup (Get-NetIPAddress, Get-NetAdapter). addr is checked to be an IPv4
+    address before it is put in the command, so nothing else can reach the shell.
+    """
+    if addr in _WIN_IFACE_CACHE:
+        return _WIN_IFACE_CACHE[addr]
     try:
+        ipaddress.IPv4Address(addr)
+    except ValueError:
+        return None
+    script = (
+        f"$i = Get-NetIPAddress -IPAddress '{addr}' -ErrorAction Stop | Select-Object -First 1; "
+        "$a = Get-NetAdapter -InterfaceIndex $i.InterfaceIndex -IncludeHidden -ErrorAction SilentlyContinue; "
+        "Write-Output ($i.InterfaceAlias + '|' + $a.InterfaceDescription)"
+    )
+    out = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+        capture_output=True,
+        text=True,
+        timeout=15,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    ).stdout.strip()
+    name = out or None
+    _WIN_IFACE_CACHE[addr] = name
+    return name
+
+
+def interface_of(addr: str) -> str | None:
+    """The network interface that holds an address (macOS, Linux, Windows; None if unknown)."""
+    try:
+        if sys.platform == "win32":
+            return _windows_interface(addr)
         if sys.platform == "darwin":
             out = subprocess.run(["ifconfig"], capture_output=True, text=True, timeout=5).stdout
             name = None
@@ -90,7 +137,10 @@ def interface_of(addr: str) -> str | None:
 
 def is_tunnel(ifname: str | None) -> bool:
     """True for a VPN or tunnel interface: the phone on Wi-Fi cannot reach it, VPN peers could."""
-    return bool(ifname) and ifname.lower().startswith(TUNNEL_PREFIXES)
+    if not ifname:
+        return False
+    name = ifname.lower()
+    return name.startswith(TUNNEL_PREFIXES) or any(w in name for w in TUNNEL_WORDS)
 
 
 def lan_address() -> str | None:

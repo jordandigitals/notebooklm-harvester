@@ -366,6 +366,16 @@ def test_one_bad_device_entry_does_not_drop_the_others(home):
         ("en0", False),
         ("wlan0", False),
         (None, False),
+        # Windows: "<alias>|<description>" (alias names are often generic)
+        ("NordLynx|NordLynx Tunnel", True),
+        ("Local Area Connection 4|TAP-NordVPN Windows Adapter V9", True),
+        ("Local Area Connection 2|ExpressVPN TAP Adapter", True),
+        ("Local Area Connection|ExpressVPN TUN Driver", True),
+        ("OpenVPN Data Channel Offload for NordVPN|OpenVPN Data Channel Offload #2", True),
+        ("Tailscale|Tailscale Tunnel", True),
+        ("Ethernet 3|WireGuard Tunnel", True),
+        ("Wi-Fi|Intel(R) Wi-Fi 6 AX200 160MHz", False),
+        ("Ethernet|Realtek PCIe GbE Family Controller", False),
     ],
 )
 def test_tunnel_interfaces_refused(name, tunnel):
@@ -394,3 +404,32 @@ def test_head_request_on_a_phone_stream_closes_cleanly(app, ledger):
     c = phone_client(app, tok)
     r = c.open(f"/api/play/{ledger.harvest('a1').id}", method="HEAD")
     assert r.status_code == 200 and r.data == b""
+
+
+def test_windows_vpn_address_is_not_used(monkeypatch):
+    """On Windows a private address held by a VPN adapter is refused (D-026 scope)."""
+    monkeypatch.setattr(phone, "interface_of", lambda addr: "NordLynx|NordLynx Tunnel")
+
+    class FakeSock:
+        def connect(self, a):
+            pass
+
+        def getsockname(self):
+            return ("10.5.0.2", 50000)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(phone.socket, "socket", lambda *a, **k: FakeSock())
+    assert phone.lan_address() is None
+    monkeypatch.setattr(phone, "interface_of", lambda addr: "Wi-Fi|Intel(R) Wi-Fi 6 AX200 160MHz")
+    assert phone.lan_address() == "10.5.0.2"
+
+
+def test_windows_interface_lookup_refuses_non_addresses(monkeypatch):
+    """Only a real IPv4 address ever reaches the PowerShell command."""
+    ran = []
+    monkeypatch.setattr(phone.subprocess, "run", lambda *a, **k: ran.append(a))
+    phone._WIN_IFACE_CACHE.clear()
+    assert phone._windows_interface("1.2.3.4'; Remove-Item x; '") is None
+    assert ran == []
