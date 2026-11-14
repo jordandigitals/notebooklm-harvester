@@ -227,3 +227,15 @@ def test_state_and_account_flags_for_windows(client, ledger, monkeypatch, tmp_pa
     monkeypatch.setattr(paths, "is_windows", lambda: False)
     data = c.get("/api/state", headers=H).get_json()
     assert data["windows"] is False and data["accounts"][0]["long_folder"] is False
+
+
+def test_request_log_is_quiet():
+    """The web server library must not print request lines (they carry the page key)."""
+    import logging
+
+    from nlh import server as srv
+
+    logging.getLogger("werkzeug").setLevel(logging.NOTSET)
+    srv.quiet_request_log()
+    assert not logging.getLogger("werkzeug").isEnabledFor(logging.INFO)
+    assert logging.getLogger("werkzeug").isEnabledFor(logging.WARNING)

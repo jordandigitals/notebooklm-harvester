@@ -7,6 +7,7 @@ server's rows. Skipped when Playwright or a browser is not available.
 import json
 import os
 import statistics
+import tempfile
 import time
 import urllib.parse
 from pathlib import Path
@@ -265,7 +266,7 @@ def test_filter_keystroke_10000(browser):
         med, worst = _measure(page)
         rendered = page.evaluate("window.__nlhTest.renderedRowCount()")
         print(f"\n10,000 rows: median {med:.1f} ms, worst {worst:.1f} ms, rendered rows {rendered}")
-        Path(os.environ.get("NLH_PERF_OUT", "/tmp/nlh-perf.json")).write_text(
+        Path(os.environ.get("NLH_PERF_OUT") or Path(tempfile.gettempdir()) / "nlh-perf.json").write_text(
             json.dumps({"rows": 10000, "median_ms": med, "worst_ms": worst})
         )
         assert rendered < 60
