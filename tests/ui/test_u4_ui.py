@@ -11,8 +11,20 @@ from tests.ui.demo_server import DemoServer
 pw = pytest.importorskip("playwright.sync_api")
 AXE = Path(__file__).resolve().parents[1] / "vendor" / "axe-core" / "axe.min.js"
 CHANNEL = os.environ.get("NLH_UI_CHANNEL", "chrome")
-VIEWS = {"library": "", "history": "v=history", "stats": "v=stats", "settings": "v=settings"}
-READY = {"library": "#vspacer .vrow", "history": ".htable, .hcard", "stats": ".tile", "settings": ".set-card"}
+VIEWS = {
+    "library": "",
+    "history": "v=history",
+    "studio": "v=studio",
+    "stats": "v=stats",
+    "settings": "v=settings",
+}
+READY = {
+    "library": "#vspacer .vrow",
+    "history": ".htable, .hcard",
+    "studio": "#studio-account",
+    "stats": ".tile",
+    "settings": ".set-card",
+}
 
 
 @pytest.fixture(scope="module")

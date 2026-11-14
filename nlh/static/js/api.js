@@ -13,6 +13,11 @@ export async function api(path, { method = "GET", body } = {}) {
   });
   let data = {};
   try { data = await res.json(); } catch (e) { data = {}; }
-  if (!res.ok) throw new Error(data.error || "The app did not answer as expected. Try again.");
+  if (!res.ok) {
+    const err = new Error(data.error || "The app did not answer as expected. Try again.");
+    err.data = data; // extra fields, such as needs_ack
+    err.status = res.status;
+    throw err;
+  }
   return data;
 }

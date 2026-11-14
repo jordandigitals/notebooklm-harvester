@@ -27,7 +27,7 @@ from pathlib import Path
 
 from flask import Flask, Response, abort, jsonify, redirect, request, send_file, send_from_directory
 
-from nlh import APP_NAME, __version__, accounts, adapter, demo, harvest, media, naming, paths
+from nlh import APP_NAME, __version__, accounts, adapter, demo, harvest, media, naming, paths, studio_routes
 from nlh import settings as app_settings
 from nlh.ledger import Ledger
 from nlh.log import get_logger
@@ -65,6 +65,7 @@ class Job:
     cancel: threading.Event = field(default_factory=threading.Event)
     started_at: float | None = None
     finished_at: float | None = None
+    result: dict | None = None  # a job's answer for the page (Studio plan), memory only
 
     def view(self) -> dict:
         """JSON view for the page."""
@@ -81,6 +82,7 @@ class Job:
             "total": self.total,
             "current": self.current,
             "cancelling": self.cancel.is_set() and self.state in ("queued", "running"),
+            "result": self.result,
             "elapsed_s": round((self.finished_at or time.time()) - self.started_at, 1)
             if self.started_at
             else 0,
@@ -405,15 +407,21 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
 
         return jsonify(worker.submit("refresh", f"Reading {acct.label}", run, acct.id).view())
 
-    @app.get("/api/accounts/<int:account_id>/library")
-    def get_library(account_id):
-        get_account(account_id)
+    def account_listing(account_id: int):
+        """The account's notebook listing (memory, else the cached copy), or None."""
         if account_id not in library:
             saved = led.load_listing(account_id)
             if not saved:
-                return jsonify(loaded=False, notebooks=[])
+                return None
             library[account_id] = _load_listing(saved[0])
             cached_at[account_id] = saved[1]
+        return library[account_id]
+
+    @app.get("/api/accounts/<int:account_id>/library")
+    def get_library(account_id):
+        get_account(account_id)
+        if account_listing(account_id) is None:
+            return jsonify(loaded=False, notebooks=[])
         out = []
         for nb, ovs in library[account_id]:
             items = []
@@ -1020,6 +1028,7 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
 
     app.config["worker"] = worker
     app.config["library"] = library
+    studio_routes.register(app, led, worker, get_account, body, account_listing)
     return app
 
 

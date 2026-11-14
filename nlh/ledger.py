@@ -16,7 +16,7 @@ from pathlib import Path
 
 from nlh import paths
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS accounts (
@@ -62,6 +62,42 @@ CREATE TABLE IF NOT EXISTS library_cache (
   data_json      TEXT NOT NULL,
   listed_at      TEXT NOT NULL
 );
+"""
+
+# Schema v4 (Studio, D-025). Plans keep only what Jordan approved (never the raw chat text);
+# the queue keeps one row per overview to generate. Rows are never deleted.
+STUDIO_SCHEMA = """
+CREATE TABLE IF NOT EXISTS studio_plans (
+  id             INTEGER PRIMARY KEY,
+  account_id     INTEGER NOT NULL REFERENCES accounts(id),
+  notebook_id    TEXT NOT NULL,
+  notebook_title TEXT NOT NULL,
+  items_json     TEXT NOT NULL,
+  created_at     TEXT NOT NULL,
+  archived       INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS studio_queue (
+  id             INTEGER PRIMARY KEY,
+  plan_id        INTEGER REFERENCES studio_plans(id),
+  account_id     INTEGER NOT NULL REFERENCES accounts(id),
+  notebook_id    TEXT NOT NULL,
+  notebook_title TEXT NOT NULL,
+  title          TEXT NOT NULL,
+  focus          TEXT NOT NULL,
+  audio_format   TEXT NOT NULL,
+  audio_length   TEXT NOT NULL,
+  language       TEXT NOT NULL,
+  state          TEXT NOT NULL,
+  task_id        TEXT,
+  queued_at      TEXT NOT NULL,
+  submitted_at   TEXT,
+  submit_day     TEXT,
+  finished_at    TEXT,
+  harvest_id     INTEGER REFERENCES harvests(id),
+  message        TEXT
+);
+CREATE INDEX IF NOT EXISTS studio_queue_state ON studio_queue(state);
+CREATE INDEX IF NOT EXISTS studio_queue_day ON studio_queue(account_id, submit_day);
 """
 
 
@@ -134,6 +170,7 @@ class Ledger:
         c.execute("PRAGMA journal_mode = WAL")  # readers do not wait for a writer
         c.executescript(SCHEMA)
         self._migrate()
+        c.executescript(STUDIO_SCHEMA)  # v3 -> v4: new tables only, existing rows untouched
         c.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         c.commit()
 
@@ -413,3 +450,44 @@ class Ledger:
             "SELECT data_json, listed_at FROM library_cache WHERE account_id = ?", (account_id,)
         ).fetchone()
         return (r["data_json"], r["listed_at"]) if r else None
+
+    # ------------------------------------------------------------ Studio (D-025)
+
+    def add_plan(self, account_id: int, notebook_id: str, notebook_title: str, items_json: str) -> int:
+        """Store a plan Jordan approved (items only, never the raw chat answer)."""
+        with self.transaction() as c:
+            cur = c.execute(
+                "INSERT INTO studio_plans (account_id, notebook_id, notebook_title, items_json, created_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (account_id, notebook_id, notebook_title, items_json, now()),
+            )
+            return int(cur.lastrowid)
+
+    def plans(self, account_id: int | None = None, include_archived: bool = False) -> list[dict]:
+        """Approved plans, newest first."""
+        sql = "SELECT * FROM studio_plans WHERE 1 = 1"
+        args: list = []
+        if account_id is not None:
+            sql += " AND account_id = ?"
+            args.append(account_id)
+        if not include_archived:
+            sql += " AND archived = 0"
+        rows = self.conn.execute(sql + " ORDER BY id DESC", args).fetchall()
+        return [dict(r) for r in rows]
+
+    def plan(self, plan_id: int) -> dict | None:
+        """One plan by id."""
+        r = self.conn.execute("SELECT * FROM studio_plans WHERE id = ?", (plan_id,)).fetchone()
+        return dict(r) if r else None
+
+    def archive_plan(self, plan_id: int) -> None:
+        """Hide a plan from the list (the row stays)."""
+        with self.transaction() as c:
+            c.execute("UPDATE studio_plans SET archived = 1 WHERE id = ?", (plan_id,))
+
+    def submitted_on(self, account_id: int, day: str) -> int:
+        """Generations submitted for an account on a local day (the cap counts on submit)."""
+        r = self.conn.execute(
+            "SELECT COUNT(*) FROM studio_queue WHERE account_id = ? AND submit_day = ?", (account_id, day)
+        ).fetchone()
+        return int(r[0])

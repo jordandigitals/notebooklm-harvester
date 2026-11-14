@@ -260,6 +260,31 @@ def seed(ledger, rows: list[DemoRow] | None = None) -> None:
             ledger.record_attempt(acct.id, r.artifact_id, "failed", "Could not reach NotebookLM.", None, 5.0)
 
 
+# Demo plan answers in the shapes seen in the D-024 spike and their likely variants
+# (synthetic text only; the repo is public).
+PLAN_SHAPES = [
+    # 0: bold count, numbered list, Focus lines, citations
+    "Based on the sources, I recommend **3 long audio overviews** so nothing is skipped [1].\n\n"
+    "1. **Soil and What Lives In It**\n"
+    "   * **Focus:** What soil is made of, how worms and fungi keep it alive, and simple tests [1, 2].\n"
+    "   * **Key topics:** texture, organic matter, drainage.\n"
+    "2. **Compost From Start to Finish**\n"
+    "   * **Focus:** Building a heap, the browns and greens balance, turning and timing [3].\n"
+    "3. **Planting Through the Seasons**\n"
+    "   * **Focus:** A year in the garden: sowing, mulching, watering and putting beds to rest [4].\n",
+    # 1: headings with "Overview n:" and plain Focus lines, no count
+    "### Overview 1: How Railways Began\nFocus: early lines, the first engines and who paid for them.\n\n"
+    "### Overview 2: Bridges and Tunnels\nFocus: the engineering that crossed rivers and hills.\n",
+    # 2: a count in words and a plain numbered list, focus as bullets under some items
+    "This notebook splits naturally into four overviews.\n"
+    "1. Tides and the moon\n   - why there are two tides a day\n   - spring and neap tides\n"
+    "2. Coastal erosion\n3. Life in rock pools\n4. Reading a tide table\n",
+    # 3: no list at all
+    "The sources are short and closely linked, so one overview would cover them well. "
+    "You could ask it to focus on how harmony and rhythm work together.",
+]
+
+
 def install_fake_adapter() -> None:
     """Replace the adapter's network functions with local fakes (demo mode only)."""
     from nlh import adapter, paths
@@ -287,6 +312,15 @@ def install_fake_adapter() -> None:
         shutil.copyfile(tone_cache["src"], dest)
         return dest
 
+    def ask_for_plan(profile_name, notebook_id, question):
+        # Four recorded answer shapes, picked by notebook so tests can predict them.
+        import time as _t
+
+        _t.sleep(float(os.environ.get("NLH_DEMO_ASK_S", "1.2")))
+        shape = sum(map(ord, notebook_id)) % 4
+        return adapter.PlanAnswer(PLAN_SHAPES[shape])
+
+    adapter.ask_for_plan = ask_for_plan
     adapter.list_library = list_library
     adapter.download_overview = download_overview
     adapter.check_session = lambda name: adapter.SessionStatus("ok", "Signed in (demo).", None)

@@ -127,6 +127,55 @@ export async function renderSettings() {
   nlab.append(nbox, el("span", "lbl", "Tell me when a long harvest ends"));
   notes.append(nlab);
 
+  // Studio (D-025)
+  const studioCard = section("Studio",
+    "Limits for making audio overviews from a plan. NotebookLM does not show how much of its daily allowance is left, so the app keeps its own count per account.");
+  const numField = (label, key, min, max, unit) => {
+    const lab = el("label", "field", label);
+    const row = el("div", "row");
+    const inp = el("input", "input num");
+    inp.type = "number";
+    inp.min = String(min);
+    inp.max = String(max);
+    inp.step = "1";
+    inp.value = String(st[key]);
+    inp.addEventListener("change", () => {
+      const v = Number(inp.value);
+      if (!Number.isInteger(v) || v < min || v > max) { toast(`Use a whole number from ${min} to ${max}.`, "warn"); inp.value = String(prefs.settings[key]); return; }
+      save({ [key]: v }, `${label} saved.`);
+    });
+    row.append(inp, el("span", "hint", unit));
+    lab.append(row);
+    return lab;
+  };
+  studioCard.append(
+    numField("Overviews per account per day", "studio_daily_cap", 1, 20, "counted when a request is sent"),
+    numField("Pause between requests", "studio_pause_s", 30, 300, "seconds"),
+  );
+  const langLab = el("label", "field", "Language for new overviews");
+  const lang = el("input", "input num");
+  lang.value = st.studio_language;
+  lang.spellcheck = false;
+  lang.addEventListener("change", () => save({ studio_language: lang.value.trim() }, "Language saved."));
+  langLab.append(lang);
+  studioCard.append(langLab, el("p", "hint", "Mark accounts that other automated tools also use. Studio shows a warning when you pick one."));
+  try {
+    const sstate = await api("/api/studio/state");
+    for (const a of sstate.accounts) {
+      const lab = el("label", "check");
+      const box = el("input");
+      box.type = "checkbox";
+      box.checked = a.shared;
+      box.addEventListener("change", () => {
+        const now = new Set(prefs.settings.studio_shared_accounts);
+        if (box.checked) now.add(a.id); else now.delete(a.id);
+        save({ studio_shared_accounts: [...now] }, box.checked ? `${a.label} marked as shared.` : `${a.label} no longer marked.`);
+      });
+      lab.append(box, el("span", "lbl", `${a.label}: used by other automated tools`));
+      studioCard.append(lab);
+    }
+  } catch (e) { studioCard.append(el("p", "error", e.message)); }
+
   // diagnostics
   const diag = section("Diagnostics", "Facts to include when asking for help. No account names, emails or sign-in data are included.");
   const pre = el("pre", "diag");
@@ -174,6 +223,6 @@ export async function renderSettings() {
   det.append(npre);
   about.append(det);
 
-  wrap.append(theme, naming, defaults, notes, diag, trash, about);
+  wrap.append(theme, naming, defaults, studioCard, notes, diag, trash, about);
   view.replaceChildren(wrap);
 }

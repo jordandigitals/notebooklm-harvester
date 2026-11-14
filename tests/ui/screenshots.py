@@ -142,6 +142,79 @@ def capture(out_dir: Path, prefix: str) -> list[str]:
             return out.name
 
         made = []
+        if prefix.endswith("-studio-s1-mac"):
+            post = (
+                "async (b) => { await fetch('/api/settings', {method: 'POST', headers: {'X-NLH-Req': '1',"
+                " 'Content-Type': 'application/json'}, body: JSON.stringify(b)}); }"
+            )
+
+            def choose(pg):
+                pg.wait_for_selector("#studio-account")
+                pg.select_option("#studio-account", index=1)
+                pg.wait_for_selector("#studio-nb-list .nb-option")
+                pg.locator("#studio-nb-list .nb-option").first.click()
+
+            def asked(pg, warn=False):
+                pg.evaluate(post, {"studio_ask_warned": not warn})
+                choose(pg)
+                pg.click("#studio-ask")
+                if warn:
+                    pg.wait_for_selector("#dlg[open]")
+                    return
+                pg.wait_for_selector("#studio-plan", timeout=20000)
+                pg.evaluate("document.querySelector('#view-studio').scrollTop = 0")
+
+            def editing(pg):
+                asked(pg)
+                pg.click("#studio-add-row")
+                last = pg.locator(".plan-row").last
+                last.locator("input").fill("Bees and pollination")
+                last.locator("textarea").fill("Only the parts about bees, flowers and honey")
+                pg.locator(".plan-row").first.locator("input").fill("Soil, worms and fungi")
+
+            def kept(pg):
+                editing(pg)
+                pg.click("#studio-keep")
+                pg.wait_for_selector(".kept-plan")
+                choose(pg)
+
+            def shared(pg):
+                accts = pg.evaluate("async () => (await (await fetch('/api/studio/state')).json()).accounts")
+                pg.evaluate(post, {"studio_shared_accounts": [accts[1]["id"]]})
+                pg.reload()
+                pg.wait_for_selector("#studio-account")
+                pg.select_option("#studio-account", str(accts[1]["id"]))
+                pg.wait_for_selector(".studio-card .notice-warn")
+
+            def settings_studio(pg):
+                pg.wait_for_selector(".set-card")
+                pg.locator(".set-card h2", has_text="Studio").scroll_into_view_if_needed()
+
+            q = "v=studio"
+            made.append(
+                pair(
+                    1,
+                    "studio-empty",
+                    "light",
+                    query=q,
+                    setup=lambda pg: pg.wait_for_selector("#studio-account"),
+                )
+            )
+            made.append(pair(2, "studio-warning", "dark", query=q, setup=lambda pg: asked(pg, warn=True)))
+            made.append(pair(3, "studio-plan", "light", query=q, setup=asked, height=1900))
+            made.append(pair(4, "studio-editing", "dark", query=q, setup=editing, height=1900))
+            made.append(pair(5, "studio-kept", "light", query=q, setup=kept, height=1700))
+            made.append(pair(6, "studio-shared-account", "light", query=q, setup=shared))
+            made.append(pair(7, "settings-studio", "dark", query="v=settings", setup=settings_studio))
+            path = shot("studio-plan", 320, "light", query=q, setup=asked, height=2200)
+            out = out_dir / f"{prefix}-shot-08-studio-plan-320-light.png"
+            out.write_bytes(path.read_bytes())
+            made.append(out.name)
+            b.close()
+            for f in tmp.iterdir():
+                f.unlink()
+            tmp.rmdir()
+            return made + notes
         if prefix.endswith("-u4-mac"):
             made.append(pair(1, "library", "light", query="group=notebook"))
             made.append(pair(2, "library", "dark", query="status=new,failed&q=garden"))

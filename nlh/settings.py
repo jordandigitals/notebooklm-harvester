@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import threading
 from pathlib import Path
@@ -70,7 +71,15 @@ DEFAULTS = {
     "group": "none",
     "history_page_size": 50,
     "views": None,  # None means "use DEFAULT_VIEWS"
+    # Studio (D-025)
+    "studio_daily_cap": 4,  # generated overviews per account per local day
+    "studio_pause_s": 45,  # pause between generation requests
+    "studio_shared_accounts": [],  # account ids marked "used by other automated tools"
+    "studio_ask_warned": False,  # the one-time warning about chat messages was shown
+    "studio_language": "en",
 }
+STUDIO_CAP_RANGE = (1, 20)
+STUDIO_PAUSE_RANGE = (30, 300)
 
 _lock = threading.Lock()
 
@@ -169,6 +178,29 @@ def validate(update: dict) -> dict:
         elif key == "history_page_size":
             if value not in PAGE_SIZES:
                 raise SettingsError("Page size must be 50, 100 or 250.")
+        elif key == "studio_daily_cap":
+            lo, hi = STUDIO_CAP_RANGE
+            if not isinstance(value, int) or isinstance(value, bool) or not lo <= value <= hi:
+                raise SettingsError(f"The daily Studio limit must be a whole number from {lo} to {hi}.")
+        elif key == "studio_pause_s":
+            lo, hi = STUDIO_PAUSE_RANGE
+            if not isinstance(value, int) or isinstance(value, bool) or not lo <= value <= hi:
+                raise SettingsError(f"The pause between requests must be {lo} to {hi} seconds.")
+        elif key == "studio_shared_accounts":
+            if (
+                not isinstance(value, list)
+                or len(value) > 50
+                or not all(isinstance(v, int) and not isinstance(v, bool) for v in value)
+            ):
+                raise SettingsError("The list of shared accounts is not valid.")
+            value = sorted(set(value))
+        elif key == "studio_ask_warned":
+            if not isinstance(value, bool):
+                raise SettingsError("That setting must be on or off.")
+        elif key == "studio_language":
+            value = _text(value, "The language", 12).strip()
+            if not re.fullmatch(r"[A-Za-z]{2,3}(-[A-Za-z0-9]{2,4})?", value):
+                raise SettingsError("Use a language code such as en, fr or pt-BR.")
         elif key == "views":
             if not isinstance(value, list) or len(value) > MAX_VIEWS:
                 raise SettingsError(f"At most {MAX_VIEWS} saved views.")

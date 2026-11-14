@@ -4,7 +4,9 @@ Every call into the library lives in this module. The rest of the app uses the
 types defined here, never the library's own. The adapter is READ-ONLY toward
 NotebookLM (ARCH-RULES 1): it lists notebooks, lists audio overviews and downloads
 one overview. It also runs the library's local sign-in commands, which only write
-the session file on this machine.
+the session file on this machine. The one exception is the Studio stage (D-025):
+StudioClient may ask a notebook a question on its current conversation and generate
+an audio overview, both only after an explicit click.
 
 Two call paths:
 - Read calls use the library's Python API in process, with an explicit session
@@ -220,6 +222,96 @@ def _client(profile_name: str) -> _ReadOnlyContext:
     return _ReadOnlyContext(NotebookLMClient.from_storage(path=str(path)))
 
 
+# ---------------------------------------------------------------- Studio (D-025)
+
+
+class _StudioChat:
+    """Only chat.ask, and only on the notebook's current conversation (D-025 condition 2)."""
+
+    def __init__(self, inner):
+        self._ask = inner.chat.ask
+
+    async def ask(self, notebook_id: str, question: str):
+        # No conversation_id and no source_ids are passed through: the question goes to the
+        # notebook's current conversation over all sources. Nothing here can delete or reset a
+        # conversation ("ask --new" does that and is not reachable).
+        return await self._ask(notebook_id, question)
+
+    def __getattr__(self, name):
+        raise AttributeError(f"{name} is not allowed: Studio may only ask and generate audio")
+
+
+class _StudioArtifacts:
+    """Only artifacts.generate_audio (D-025)."""
+
+    def __init__(self, inner):
+        self.generate_audio = inner.artifacts.generate_audio
+
+    def __getattr__(self, name):
+        raise AttributeError(f"{name} is not allowed: Studio may only ask and generate audio")
+
+
+class StudioClient:
+    """The only write path toward NotebookLM (D-025 condition 7).
+
+    Exposes exactly chat.ask (current conversation, never new) and artifacts.generate_audio.
+    Anything else raises AttributeError. Completion is checked through ReadOnlyClient
+    (artifacts.list_audio), so this proxy needs nothing more. The guard test checks both
+    the surface of this class and that no write call exists anywhere else.
+    """
+
+    def __init__(self, inner):
+        self.chat = _StudioChat(inner)
+        self.artifacts = _StudioArtifacts(inner)
+
+    def __getattr__(self, name):
+        raise AttributeError(f"{name} is not allowed: Studio may only ask and generate audio")
+
+
+class _StudioContext:
+    """Async context manager that opens the library client and yields the Studio wrapper."""
+
+    def __init__(self, ctx):
+        self._ctx = ctx
+
+    async def __aenter__(self) -> StudioClient:
+        return StudioClient(await self._ctx.__aenter__())
+
+    async def __aexit__(self, *exc):
+        return await self._ctx.__aexit__(*exc)
+
+
+def _studio_client(profile_name: str) -> _StudioContext:
+    """Open a Studio client on one account's session file."""
+    from notebooklm import NotebookLMClient
+
+    path = paths.storage_path(profile_name)
+    if not path.exists():
+        raise FileNotFoundError("no session file")
+    return _StudioContext(NotebookLMClient.from_storage(path=str(path)))
+
+
+class _QuietLibrary:
+    """Silence the library's logger during Studio calls: on a failed ask it logs the full
+    answer text, and plan text must never reach a log or the console (brief, review R2)."""
+
+    def __enter__(self):
+        import logging
+
+        self.lg = logging.getLogger("notebooklm")
+        self.level, self.propagate = self.lg.level, self.lg.propagate
+        self.null = logging.NullHandler()
+        self.lg.addHandler(self.null)
+        self.lg.setLevel(logging.CRITICAL + 1)
+        self.lg.propagate = False
+        return self
+
+    def __exit__(self, *exc):
+        self.lg.removeHandler(self.null)
+        self.lg.setLevel(self.level)
+        self.lg.propagate = self.propagate
+
+
 def _run(coro):
     """Run a coroutine to completion and map library errors."""
     try:
@@ -309,6 +401,117 @@ def download_overview(profile_name: str, overview: AudioOverview, dest: Path) ->
         time.monotonic() - started,
     )
     return result
+
+
+# ---------------------------------------------------------------- Studio calls (D-025)
+
+AUDIO_FORMATS = ("deep_dive", "brief", "critique", "debate")
+AUDIO_LENGTHS = ("short", "default", "long")
+
+
+@dataclass(frozen=True)
+class PlanAnswer:
+    """The text of one plan answer. Never logged (only its length is)."""
+
+    text: str
+
+
+@dataclass(frozen=True)
+class Submitted:
+    """A generation Google accepted: the task id is also the future artifact id."""
+
+    task_id: str
+    status: str
+
+
+def _studio_error(exc: Exception) -> AdapterError:
+    """Map a Studio failure. A rate or quota refusal becomes state "limit": the caller stops
+    for the day (D-025 condition 3). Only the exception type is logged."""
+    log.warning("studio call failed: %s", type(exc).__name__)
+    if isinstance(exc, AdapterError):
+        return exc
+    if _is_rate_limit(exc) or "quota" in str(exc).lower() or "user_displayable" in str(exc).lower():
+        return AdapterError(
+            "NotebookLM refused because of a usage limit. Studio stops for this account today.", "limit"
+        )
+    from notebooklm import exceptions as ex
+
+    # Mapped by type only; the exception text is not logged (it could quote the notebook).
+    if isinstance(exc, (ex.AuthError, ex.AuthExtractionError, ex.HeadlessReauthError, FileNotFoundError)):
+        return AdapterError("This account's Google sign-in has expired. Use Sign in again.", "needs_sign_in")
+    if isinstance(exc, ex.NetworkError):
+        return AdapterError("Could not reach NotebookLM. Check the internet connection.")
+    if isinstance(exc, ex.NotFoundError):
+        return AdapterError("NotebookLM could not find that notebook.")
+    return AdapterError(f"NotebookLM library error ({type(exc).__name__}).")
+
+
+def ask_for_plan(profile_name: str, notebook_id: str, question: str) -> PlanAnswer:
+    """Ask a notebook one question on its current conversation (write action, D-025).
+
+    Called only from an explicit click. No retry: a retry could post the question twice.
+    """
+
+    async def go():
+        async with _studio_client(profile_name) as client:
+            result = await client.chat.ask(notebook_id, question)
+            return PlanAnswer(str(getattr(result, "answer", "") or ""))
+
+    started = time.monotonic()
+    with _QuietLibrary():
+        try:
+            answer = asyncio.run(go())
+        except Exception as exc:
+            raise _studio_error(exc) from None
+    log.info(
+        "studio ask on notebook %s: %d characters in %.1fs",
+        notebook_id,
+        len(answer.text),
+        time.monotonic() - started,
+    )
+    return answer
+
+
+def generate_audio(
+    profile_name: str,
+    notebook_id: str,
+    focus: str,
+    audio_format: str = "deep_dive",
+    audio_length: str = "default",
+    language: str = "en",
+) -> Submitted:
+    """Ask NotebookLM to generate one audio overview (write action, D-025).
+
+    Called only by the Studio runner after Jordan's click. Never retried: a refusal stops the
+    account for the day, and a network failure leaves the item for Jordan to resume or drop.
+    """
+    if audio_format not in AUDIO_FORMATS or audio_length not in AUDIO_LENGTHS:
+        raise AdapterError("Unknown overview format or length.")
+    from notebooklm import AudioFormat, AudioLength
+
+    fmt = AudioFormat[audio_format.upper()]
+    length = AudioLength[audio_length.upper()]
+
+    async def go():
+        async with _studio_client(profile_name) as client:
+            status = await client.artifacts.generate_audio(
+                notebook_id,
+                language=language or "en",
+                instructions=focus or None,
+                audio_format=fmt,
+                audio_length=length,
+            )
+            return Submitted(str(status.task_id), str(status.status))
+
+    with _QuietLibrary():
+        try:
+            sub = asyncio.run(go())
+        except Exception as exc:
+            raise _studio_error(exc) from None
+    if not sub.task_id or sub.status == "failed":
+        raise AdapterError("NotebookLM did not accept the request.")
+    log.info("studio generation accepted on notebook %s: task %s", notebook_id, sub.task_id)
+    return sub
 
 
 # ---------------------------------------------------------------- session calls
