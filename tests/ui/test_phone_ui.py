@@ -46,9 +46,14 @@ def laptop(browser, server):
 
 
 def enable_and_pair_link(page):
+    # The switch shows the saved setting; an earlier test can leave it on with no listener running,
+    # so turn it off first when the Pair button is missing.
+    if page.is_checked("#phone-enable") and page.locator("#phone-pair-btn").count() == 0:
+        page.uncheck("#phone-enable")
+        page.wait_for_timeout(500)
     if not page.is_checked("#phone-enable"):
         page.check("#phone-enable")
-        page.wait_for_selector("#phone-pair-btn")
+    page.wait_for_selector("#phone-pair-btn")
     page.click("#phone-pair-btn")
     page.wait_for_selector("#phone-pair-link")
     assert page.locator(".phone-qr svg").count() == 1
