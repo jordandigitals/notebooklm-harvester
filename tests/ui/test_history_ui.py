@@ -115,7 +115,7 @@ def test_player_streams_with_range_and_seeks(browser, server):
     page = history_page(browser, server)
     statuses = []
     page.on("response", lambda r: statuses.append(r.status) if "/api/play/" in r.url else None)
-    page.locator(".hactions button", has_text="Play").first.click()
+    page.locator(".hactions button[aria-label='Play']").first.click()
     page.wait_for_function(
         "window.__nlhTest.player().id !== null && !window.__nlhTest.player().paused", timeout=15000
     )

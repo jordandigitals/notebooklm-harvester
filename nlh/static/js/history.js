@@ -190,32 +190,56 @@ async function openFilters(anchor) {
   popover(anchor, box, "History filters");
 }
 
+/** Middle ellipsis for long folder names on cards. */
+function middle(text, max = 28) {
+  if (!text || text.length <= max) return text || "";
+  const half = Math.floor((max - 1) / 2);
+  return `${text.slice(0, half)}\u2026${text.slice(-half)}`;
+}
+
+/** "<title>.mp3" as the app would name it, to decide whether the file name adds anything. */
+function expectedName(title) {
+  return `${String(title || "").replace(/[<>:"/\\|?*\u0000-\u001f]/g, "").replace(/\s+/g, " ").trim().replace(/[. ]+$/, "")}.mp3`;
+}
+
+function iconBtn(iconName, label, onClick, disabled = false) {
+  const b = button("", { cls: "btn btn-sm btn-ghost btn-icon", iconName, title: label, onClick });
+  b.disabled = disabled;
+  return b;
+}
+
+/** Row actions in a fixed order: Play, Show in folder, Copy path, More. */
 function actions(r) {
   const row = el("div", "hactions");
-  if (r.playable) {
-    row.append(button("Play", { cls: "btn btn-sm", iconName: "play", onClick: () => play(r.id, r.title, r.notebook) }));
-  }
-  if (r.present) row.append(button("Show in folder", { cls: "btn btn-sm btn-ghost", iconName: "folder", onClick: () => openFolder(r.folder) }));
-  row.append(button("", {
-    cls: "btn btn-sm btn-ghost btn-icon", iconName: "copy", title: "Copy path",
-    onClick: async () => { try { await navigator.clipboard.writeText(r.path); toast("Path copied."); } catch (e) { toast("Could not copy. Select the path and copy it.", "warn"); } },
-  }));
-  if (!r.present && r.reachable) {
-    row.append(button("Download again", {
-      cls: "btn btn-sm", iconName: "download",
-      onClick: () => hist.startJob(api(`/api/history/${r.id}/redownload`, { method: "POST" })),
+  const playBtn = iconBtn("play", r.playable ? "Play" : (r.play_reason || "Cannot be played here"),
+    () => play(r.id, r.title, r.notebook), !r.playable);
+  if (r.playable) playBtn.classList.replace("btn-ghost", "btn-primary-soft");
+  row.append(playBtn,
+    iconBtn("folder", r.present ? "Show in folder" : "The file is not there", () => openFolder(r.folder), !r.present),
+    iconBtn("copy", "Copy path", async () => {
+      try { await navigator.clipboard.writeText(r.path); toast("Path copied."); }
+      catch (e) { toast("Could not copy. Open the details and copy the path there.", "warn"); }
     }));
-  }
-  if (hist.notebookBase && r.notebook_id) {
-    const a = el("a", "btn btn-sm btn-ghost btn-icon");
-    a.href = `${hist.notebookBase}notebook/${encodeURIComponent(r.notebook_id)}`;
-    a.target = "_blank";
-    a.rel = "noopener noreferrer";
-    a.title = "Open notebook in NotebookLM";
-    a.setAttribute("aria-label", `Open notebook ${r.notebook} in NotebookLM`);
-    a.append(icon("external", "icon icon-sm"));
-    row.append(a);
-  }
+  const more = iconBtn("menu", "More actions", (e) => {
+    const menu = el("div", "menu");
+    if (!r.present && r.reachable) {
+      const b = button("Download again", { cls: "", iconName: "download" });
+      b.addEventListener("click", () => { closePopover(); hist.startJob(api(`/api/history/${r.id}/redownload`, { method: "POST" })); });
+      menu.append(b);
+    }
+    if (hist.notebookBase && r.notebook_id) {
+      const a = el("a", "menu-link");
+      a.href = `${hist.notebookBase}notebook/${encodeURIComponent(r.notebook_id)}`;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.append(icon("external", "icon icon-sm"), document.createTextNode("Open notebook in NotebookLM"));
+      a.addEventListener("click", () => setTimeout(closePopover, 50));
+      menu.append(a);
+    }
+    menu.append(el("p", "hint mono", r.path));
+    popover(e.currentTarget, menu, "More actions");
+  });
+  row.append(more);
   return row;
 }
 
@@ -251,7 +275,11 @@ function drawRows() {
       li.append(el("div", "ht", r.title));
       li.append(el("div", "hint", `${r.notebook} · ${r.account}`));
       li.append(el("div", "hint", `${duration(r.duration_s)} · ${size(r.size_bytes)} · saved ${shortDate(r.saved_at)}`));
-      li.append(el("div", "hp", r.path));
+      const folderName = r.folder.split(/[\\/]/).filter(Boolean).pop() || r.folder;
+      const fl = el("div", "hint folder-line");
+      fl.append(icon("folder", "icon icon-sm"), document.createTextNode(` ${middle(folderName)}`));
+      fl.title = r.folder;
+      li.append(fl);
       const st = status(r);
       if (st) li.append(st);
       li.append(actions(r));
@@ -272,7 +300,8 @@ function drawRows() {
     for (const r of hist.rows) {
       const row = el("tr");
       const t = el("td", "tt");
-      t.append(el("div", "ht", r.title), el("div", "hp", r.file_name));
+      t.append(el("div", "ht", r.title));
+      if (r.file_name !== expectedName(r.title)) t.append(el("div", "hp", r.file_name));
       const st = status(r);
       if (st) t.append(st);
       row.append(t, el("td", "", r.notebook), el("td", "", r.account), el("td", "nowrap", shortDate(r.saved_at)),

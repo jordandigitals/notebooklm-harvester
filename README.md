@@ -29,3 +29,11 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/pytest -q
 ```
+
+### Demo mode and browser tests
+
+`NLH_DEMO=1 python -m nlh serve` starts the app with made-up accounts and 2,000 generated overviews in a temporary folder (`NLH_DEMO_ROWS` changes the number). It never touches a real account, the real ledger or the network. Every screenshot and browser test uses it.
+
+```
+NLH_UI_TESTS=1 .venv/bin/pytest -q tests/ui     # needs Playwright and Chrome or Chromium
+```

@@ -142,6 +142,82 @@ def capture(out_dir: Path, prefix: str) -> list[str]:
             return out.name
 
         made = []
+        if prefix.endswith("-u4-mac"):
+            made.append(pair(1, "library", "light", query="group=notebook"))
+            made.append(pair(2, "library", "dark", query="status=new,failed&q=garden"))
+            made.append(
+                pair(
+                    3,
+                    "history",
+                    "light",
+                    query="v=history",
+                    setup=lambda pg: pg.wait_for_selector(".htable, .hcard"),
+                )
+            )
+            made.append(
+                pair(
+                    4,
+                    "history",
+                    "dark",
+                    query="v=history",
+                    setup=lambda pg: pg.wait_for_selector(".htable, .hcard"),
+                )
+            )
+            made.append(
+                pair(
+                    5,
+                    "stats",
+                    "light",
+                    query="v=stats",
+                    full=True,
+                    setup=lambda pg: pg.wait_for_selector(".tile"),
+                )
+            )
+            made.append(
+                pair(
+                    6,
+                    "settings",
+                    "dark",
+                    query="v=settings",
+                    full=True,
+                    setup=lambda pg: pg.wait_for_selector(".set-card"),
+                )
+            )
+            made.append(
+                pair(
+                    7,
+                    "drawer",
+                    "dark",
+                    query="status=saved",
+                    setup=lambda pg: (
+                        pg.locator("#vspacer .vrow .rbody").first.click(),
+                        pg.wait_for_selector("#drawer h3:has-text('Saved file')"),
+                    ),
+                )
+            )
+            for n, (w, scheme, q, name) in enumerate(
+                [
+                    (768, "light", "", "library"),
+                    (1024, "dark", "v=history", "history"),
+                    (320, "light", "", "library"),
+                ],
+                start=8,
+            ):
+                path = shot(
+                    name,
+                    w,
+                    scheme,
+                    query=q,
+                    setup=(lambda pg: pg.wait_for_selector(".htable, .hcard")) if name == "history" else None,
+                )
+                out = out_dir / f"{prefix}-shot-{n:02d}-{name}-{w}-{scheme}.png"
+                out.write_bytes(path.read_bytes())
+                made.append(out.name)
+            b.close()
+            for f in tmp.iterdir():
+                f.unlink()
+            tmp.rmdir()
+            return made + notes
         if prefix.endswith("-u3-mac"):
 
             def start_harvest(pg, q):
@@ -281,7 +357,7 @@ def capture(out_dir: Path, prefix: str) -> list[str]:
                     query=hist,
                     setup=lambda pg: (
                         pg.wait_for_selector(".hactions"),
-                        pg.locator(".hactions button", has_text="Play").first.click(),
+                        pg.locator(".hactions button[aria-label='Play']").first.click(),
                         pg.wait_for_timeout(1500),
                     ),
                 )

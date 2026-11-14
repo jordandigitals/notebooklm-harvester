@@ -212,10 +212,40 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
 
     # ------------------------------------------------------------ page
 
+    def initial_banners() -> str:
+        """Banners known before any script runs, so they never push the page down later."""
+        out = []
+        missing = [k for k, ok in media.tools_available().items() if not ok]
+        if missing:
+            out.append(
+                (
+                    "bad",
+                    f"Missing {' and '.join(missing)}. Install it (see INSTALL.md), then restart the app.",
+                )
+            )
+        if demo.enabled():
+            out.append(
+                (
+                    "info",
+                    "Demo mode: made-up accounts and notebooks. Nothing here touches a real Google account.",
+                )
+            )
+        icon_for = {"bad": "alert", "info": "info"}
+        return "".join(
+            f'<div class="notice notice-{k}">'
+            f'<svg class="icon" aria-hidden="true"><use href="#i-{icon_for[k]}"/></svg>'
+            f'<span class="grow">{t}</span></div>'
+            for k, t in out
+        )
+
     @app.get("/")
     def index():
         html = (STATIC / "index.html").read_text(encoding="utf-8")
-        return html.replace("{{APP_NAME}}", APP_NAME).replace("{{VERSION}}", __version__)
+        return (
+            html.replace("{{APP_NAME}}", APP_NAME)
+            .replace("{{VERSION}}", __version__)
+            .replace("{{BANNERS}}", initial_banners())
+        )
 
     @app.get("/static/<path:name>")
     def static_file(name):

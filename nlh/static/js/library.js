@@ -217,7 +217,9 @@ function renderGroup(item, i) {
   const b = el("button", "vgroup");
   b.type = "button";
   b.setAttribute("aria-expanded", lib.collapsed.has(g.key) ? "false" : "true");
-  b.append(icon("chevron", "icon chev"), el("span", "gname", g.label),
+  const gname = el("span", "gname");
+  gname.append(highlighted(g.label));
+  b.append(icon("chevron", "icon chev"), gname,
     el("span", "gcount", `${g.rows.length} · ${item.counts.new} new · ${item.counts.saved} saved`));
   b.addEventListener("click", () => {
     if (lib.collapsed.has(g.key)) lib.collapsed.delete(g.key); else lib.collapsed.add(g.key);

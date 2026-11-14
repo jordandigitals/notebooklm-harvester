@@ -39,18 +39,22 @@ class DemoServer:
             "PYTHONPATH": str(ROOT),
         }
         env.pop("NLH_HOME", None)
+        # The server logs every request; write it to a file. A pipe that nobody reads fills
+        # up after enough requests and then blocks the server.
+        self.errlog = Path(self.home) / "server-stderr.log"
+        self._err = open(self.errlog, "w")  # noqa: SIM115 (closed in __exit__)
         self.proc = subprocess.Popen(
             [sys.executable, "-m", "nlh", "serve"],
             cwd=ROOT,
             env=env,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
+            stderr=self._err,
             text=True,
         )
         deadline = time.time() + 180
         while time.time() < deadline:
             if self.proc.poll() is not None:
-                raise RuntimeError("demo server exited: " + (self.proc.stderr.read() or "")[-2000:])
+                raise RuntimeError("demo server exited: " + self.errlog.read_text()[-2000:])
             try:
                 cfg = json.loads((Path(self.home) / "server.json").read_text())
                 urllib.request.urlopen(f"http://127.0.0.1:{cfg['port']}/favicon.ico", timeout=2)
@@ -70,6 +74,10 @@ class DemoServer:
         return json.load(urllib.request.urlopen(req, timeout=30))
 
     def __exit__(self, *exc):
+        try:
+            self._err.close()
+        except Exception:
+            pass
         if self.proc and self.proc.poll() is None:
             self.proc.terminate()
             try:

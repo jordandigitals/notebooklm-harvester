@@ -73,10 +73,15 @@ The page address contains a one-time key, so only you can use it. Each start mak
 
 ## Use it
 
-1. **Add account.** Pick a Chrome profile that is signed in to the Google account with your notebooks, or choose Sign in to sign in to any Google account in a Chrome window. On Windows, Sign in is listed first and recommended (see Windows notes).
-2. **Choose folder.** Pick where the MP3 files go. Any folder works, including one synced by Google Drive, MEGA or OneDrive. Each account remembers its own folder.
-3. **Refresh notebooks.** The app reads your notebooks and shows each audio overview as New, Saved, Saved but file missing, or Not finished.
-4. **Harvest all new**, or tick some overviews and choose **Harvest selected**.
+1. **Add account.** Open **Add account** (on a phone or small window it is under **Accounts and filters**). Pick a Chrome profile that is signed in to the Google account with your notebooks, or choose Sign in to sign in to any Google account in a Chrome window. On Windows, Sign in is listed first and recommended (see Windows notes).
+2. **Choose folder.** Pick the account, then **Choose folder**. Any folder works, including one synced by Google Drive, MEGA or OneDrive. You can make a new folder from the picker. Each account remembers its own folder.
+3. **Refresh notebooks.** The app reads your notebooks. Each audio overview shows as New, Saved, File missing, Folder not reachable (drive unplugged or offline), Not finished, or Failed last time.
+4. **Find what you want.** Type in the search box (press `/` to jump there). It searches titles, notebook names, accounts, file names and dates, not what is said in the audio. Prefixes narrow it: `status:new`, `account:work`, `notebook:garden`, `after:2026-11-01`, `before:2026-12-31`. The filter panel adds status, account, notebook, dates and more, each with a count. Sort and group the list, and save a combination as a **View** (three are ready-made: New to harvest, Needs attention, Saved this week). The address bar keeps the view, so refresh and back work.
+5. **Harvest.** Tick overviews (shift-click for a range), or use **Select new** or **Select all in view**, then **Harvest**. Only what you can see in the current view is harvested. The queue shows each item, time left, and lets you **Cancel** (it stops after the step in progress, leaving nothing half-saved) or **Retry failed**.
+6. **Listen and look back.** **History** lists every saved file, a page at a time, with search and filters, **Play**, **Show in folder**, **Copy path**, and **Export** (CSV or JSON of everything that matches). **Stats** shows totals and charts. Click any overview for its details.
+7. **Settings** has the theme, the file-name template, a suggested folder for new accounts, the view to open with, optional browser notifications, diagnostics to copy when asking for help, and the trash for failed sign-ins.
+
+Press `?` for keyboard shortcuts. Use **Quit** in the header to stop the app.
 
 Each notebook gets its own subfolder, named after the notebook, and every overview from that notebook goes into it (the folder is made once and reused). Files are named after the overview's own title, for example `The Viral Referral Method/How WhatsApp AI Automates Viral Referrals.mp3`. Files saved before this change stay where they are; the app never moves files. If you rename a notebook in NotebookLM, its next overviews go into a folder with the new name. A name already in the folder gets ` (2)`; the app never overwrites or deletes a file. Harvesting again downloads nothing that was already saved.
 
