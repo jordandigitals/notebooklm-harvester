@@ -10,6 +10,7 @@ import {
 import { acctState, renderAccountList, renderAccountCard, syncScopeButtons, toggleAdd, adjustAddPanel } from "./accounts.js";
 import { renderHistory, hist, historyHooks } from "./history.js";
 import { renderStats } from "./stats.js";
+import { renderStudio, studioHooks } from "./studio.js";
 import { playerState, togglePlay } from "./player.js";
 import { renderQueue, retryItems } from "./queue.js";
 import { renderSettings, applyTheme, prefs } from "./settings.js";
@@ -107,6 +108,7 @@ async function reload() {
   if (app.view === "history") renderHistory({ keepPage: true });
   if (app.view === "stats") renderStats();
   if (app.view === "settings") renderSettings();
+  if (app.view === "studio") renderStudio();
 }
 
 function syncUrl(push = false) {
@@ -124,12 +126,14 @@ function switchView(view, push = true) {
   show($("view-library"), view === "library");
   show($("view-history"), view === "history");
   show($("view-stats"), view === "stats");
+  show($("view-studio"), view === "studio");
   show($("view-settings"), view === "settings");
   if (view === "settings") renderSettings();
   if (view === "history") renderHistory();
   if (view === "stats") renderStats();
+  if (view === "studio") renderStudio();
   const base = document.title.split(" · ")[0];
-  const names = { history: "History", stats: "Statistics", settings: "Settings" };
+  const names = { history: "History", stats: "Statistics", settings: "Settings", studio: "Studio" };
   document.title = names[view] ? `${base} · ${names[view]}` : base;
   syncUrl(push);
   if (view === "library") apply({ keepScroll: true });
@@ -158,7 +162,7 @@ function searchHelp(anchor) {
 
 const KEYS = [
   ["/", "Search (also Ctrl or Cmd + K)"], ["?", "This list of shortcuts"], ["g then l", "Library"],
-  ["g then h", "History"], ["g then s", "Statistics"], ["g then ,", "Settings"],
+  ["g then h", "History"], ["g then t", "Studio"], ["g then s", "Statistics"], ["g then ,", "Settings"],
   ["j / k", "Next or previous overview"], ["x", "Select or unselect the overview"],
   ["Enter", "Open its details"], ["p", "Play or pause the player"], ["Esc", "Close details, menus and dialogs"],
 ];
@@ -191,6 +195,7 @@ function onKey(e) {
     if (e.key === "l") { switchView("library"); lastG = 0; return; }
     if (e.key === "h") { switchView("history"); lastG = 0; return; }
     if (e.key === "s") { switchView("stats"); lastG = 0; return; }
+    if (e.key === "t") { switchView("studio"); lastG = 0; return; }
     if (e.key === ",") { switchView("settings"); lastG = 0; return; }
   }
   if (app.view !== "library") return;
@@ -278,7 +283,7 @@ async function init() {
   document.addEventListener("nlh:reload", () => reload());
   window.addEventListener("popstate", () => { const v = decode(location.search); $("q").value = lib.query; $("sort").value = lib.sort; $("group").value = lib.group; switchView(v, false); apply(); renderFilters(); refreshChrome(); });
 
-  if (st.demo) window.__nlhTest = { ...testHooks(), history: historyHooks(), player: playerState };
+  if (st.demo) window.__nlhTest = { ...testHooks(), history: historyHooks(), player: playerState, studio: studioHooks() };
   document.querySelector(".app").classList.remove("is-loading");
   document.body.dataset.ready = "1";
 }
