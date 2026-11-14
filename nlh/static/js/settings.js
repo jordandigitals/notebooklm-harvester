@@ -260,7 +260,12 @@ async function drawPhone(card) {
   if (ph.listening) {
     const addr = el("p", "");
     addr.append(el("span", "hint", "Address for the phone: "), el("code", "phone-link", ph.url));
-    card.append(addr, el("p", "hint", "The first time, this computer may ask whether to allow incoming connections. Allow it on your home network only."));
+    const firewall = acctState.windows
+      ? "The first time, Windows Security asks about this app. Choose Allow, not Cancel: Cancel blocks the phone. If Windows treats this Wi-Fi as a Public network, tick Public networks in that window, or set this Wi-Fi to Private in Windows Settings (Network and internet, then Wi-Fi, then this network)."
+      : "The first time, this computer may ask whether to allow incoming connections. Allow it on your home network only.";
+    const fw = el("p", "hint", firewall);
+    fw.id = "phone-firewall-hint";
+    card.append(addr, fw);
     const pairBox = el("div", "phone-pair");
     pairBox.id = "phone-pair";
     const pairBtn = button("Pair a phone", { cls: "btn btn-primary", iconName: "plus", onClick: async () => {

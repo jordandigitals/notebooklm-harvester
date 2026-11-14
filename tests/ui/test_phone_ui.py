@@ -171,3 +171,22 @@ def test_axe_phone_listen_mode_and_settings(browser, server, scheme):
     assert not ph.evaluate("document.documentElement.scrollWidth > window.innerWidth")
     ph.context.close()
     lap.context.close()
+
+
+def test_windows_firewall_hint(browser, server):
+    """On Windows the hint says Allow (not Cancel) and covers Public networks (Chat ruling)."""
+    ctx = browser.new_context(viewport={"width": 1440, "height": 1000}, bypass_csp=True)
+    page = ctx.new_page()
+    page.route(
+        "**/api/state",
+        lambda route: route.fulfill(response=(r := route.fetch()), json={**r.json(), "windows": True}),
+    )
+    page.goto(server.url + "&v=settings")
+    page.wait_for_selector("#phone-card")
+    if not page.is_checked("#phone-enable"):
+        page.check("#phone-enable")
+    page.wait_for_selector("#phone-firewall-hint")
+    text = page.inner_text("#phone-firewall-hint")
+    assert "Choose Allow, not Cancel" in text and "Public networks" in text and "Private" in text
+    page.uncheck("#phone-enable")
+    ctx.close()
