@@ -2,7 +2,7 @@
 
 A personal desktop tool for Mac and Windows. It finds the Audio Overviews made in Google's NotebookLM app, downloads each finished overview, converts it to MP3 and saves it to a folder the user chooses.
 
-It is read-only toward NotebookLM: it lists notebooks and downloads audio. It never creates, edits, regenerates or deletes anything in the account.
+It is read-only toward NotebookLM: it lists notebooks and downloads audio. The one exception is the Studio tab (decision D-025): on the user's click it can ask a notebook for an overview plan and generate audio overviews from a plan the user approved, capped per account per day. It never deletes, renames, edits or regenerates anything, and never starts a new chat conversation.
 
 Built on the unofficial [notebooklm-py](https://github.com/teng-lin/notebooklm-py) library (pinned to 0.8.2). Saved Google sessions stay in the user's app data folder and are never committed.
 
