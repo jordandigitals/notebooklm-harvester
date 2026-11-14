@@ -88,7 +88,9 @@ def test_history_filters_search_and_accounts(big):
 
 def test_export_csv_and_json_whole_filtered_ledger(big):
     c, a1, *_ = big
-    text = c.get(f"/api/export.csv?accounts={a1.id}", headers=H).get_data(as_text=True)
+    raw = c.get(f"/api/export.csv?accounts={a1.id}", headers=H).get_data()
+    assert raw.startswith(b"\xef\xbb\xbf")  # UTF-8 byte-order mark, for Excel on Windows
+    text = raw.decode("utf-8-sig")
     rows = list(csv.DictReader(io.StringIO(text)))
     assert len(rows) == 130  # more than one page: the whole filtered set
     assert list(rows[0].keys()) == [
@@ -177,3 +179,36 @@ def test_history_rows_flag_playable_and_reasons(big):
     assert all(r["playable"] for r in rows)
     other = c.get("/api/history/page?accounts=2&size=50", headers=H).get_json()["rows"]
     assert not any(r["playable"] for r in other)
+
+
+def test_export_csv_keeps_accents_and_emoji_for_excel(ledger, tmp_path):
+    """Accented and emoji titles survive a round trip through the CSV export."""
+    import csv
+    import io
+
+    from nlh import server
+
+    acct = ledger.add_account("p-accent", "Café account")
+    f = tmp_path / "x.mp3"
+    f.write_bytes(b"x")
+    with ledger.transaction() as c:
+        ledger.record(
+            c,
+            account_id=acct.id,
+            notebook_id="nb-accent",
+            artifact_id="art-accent",
+            overview_title="Résumé of Zoë's \U0001f3a7 notes",
+            notebook_title="Crème brûlée",
+            created_at=None,
+            saved_path=str(f),
+            size_bytes=1,
+            duration_s=1.0,
+            sha256="0" * 64,
+        )
+    app = server.create_app("tok", ledger)
+    app.testing = True
+    raw = app.test_client().get("/api/export.csv", headers={"X-NLH-Token": "tok"}).get_data()
+    assert raw.startswith(b"\xef\xbb\xbf")
+    rows = list(csv.DictReader(io.StringIO(raw.decode("utf-8-sig"))))
+    assert rows[0]["overview_title"] == "Résumé of Zoë's \U0001f3a7 notes"
+    assert rows[0]["notebook_title"] == "Crème brûlée"

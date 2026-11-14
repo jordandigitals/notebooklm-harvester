@@ -103,7 +103,7 @@ def test_export_contains_every_filtered_row(browser, server):
     page.wait_for_timeout(800)
     total = page.evaluate("window.__nlhTest.history.total()")
     resp = page.context.request.get(server.base + "/api/export.csv?q=garden")  # page cookie, not a header
-    rows = list(csv.DictReader(io.StringIO(resp.text())))
+    rows = list(csv.DictReader(io.StringIO(resp.body().decode("utf-8-sig"))))
     assert resp.status == 200 and len(rows) == total
     assert all(
         "garden" in (r["overview_title"] + r["notebook_title"] + r["saved_path"]).lower() for r in rows

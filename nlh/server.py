@@ -883,7 +883,9 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
             w = csv.DictWriter(buf, fieldnames=EXPORT_COLUMNS)
             w.writeheader()
             w.writerows(records)
-            body_text = buf.getvalue()
+            # The byte-order mark makes Excel on Windows read the file as UTF-8; without it,
+            # accented and emoji titles show as garbage. Other spreadsheet apps ignore it.
+            body_text = "\ufeff" + buf.getvalue()
             mime = "text/csv"
         else:
             abort(404)
