@@ -164,7 +164,10 @@ def _window_with(data, label, low=21, high=50):
     for i in range(len(months)):
         for j in range(i, len(months)):
             spec = {"from": f"{months[i]}-01", "to": f"{months[j]}-31"}
-            ids = oracle.expected(data, "", {"account": [work], "status": ["new"], "created": spec})
+            # titles with "glacier" fail on purpose in demo mode, so leave them out here
+            ids = oracle.expected(
+                data, "", {"account": [work], "status": ["new"], "created": spec, "exclude": "glacier"}
+            )
             if low <= len(ids) <= high:
                 return work, spec, ids
     pytest.skip("no suitable window in this demo data")
@@ -173,7 +176,7 @@ def _window_with(data, label, low=21, high=50):
 def test_harvest_these_n_beyond_rendered_rows(browser, server, data):
     """Pagination ruling (b): Harvest these N with N above the rendered rows saves exactly the set."""
     work, spec, want = _window_with(data, "Work account")
-    qs = f"acct={work}&status=new&created={spec['from']}..{spec['to']}"
+    qs = f"acct={work}&status=new&created={spec['from']}..{spec['to']}&exc=glacier"
     page = open_page(browser, server, qs, height=480)
     assert shown(page) == want
     rendered = page.evaluate("window.__nlhTest.renderedRowCount()")

@@ -133,6 +133,7 @@ def harvest_one(
     downloader: Callable[[str, AudioOverview, Path], Path] | None = None,
     on_step: Callable[..., None] | None = None,
     cancel: threading.Event | None = None,
+    template: str | None = None,
 ) -> ItemResult:
     """Harvest a single overview into out_dir. Skips anything already saved.
 
@@ -172,7 +173,18 @@ def harvest_one(
     if not out_dir.is_dir():
         return ItemResult(ov.artifact_id, ov.title, "failed", "The output folder does not exist.")
     try:
-        naming.check_fits(out_dir, ov.notebook_title)  # Windows path cap (D-023), before any download
+        # Windows path cap (D-023), checked before any download.
+        if template and template != naming.DEFAULT_TEMPLATE:
+            naming.check_template_fits(
+                out_dir,
+                template,
+                notebook=ov.notebook_title,
+                title=ov.title,
+                date=ov.created_at,
+                account=account.label,
+            )
+        else:
+            naming.check_fits(out_dir, ov.notebook_title)
     except naming.PathTooLong as exc:
         return ItemResult(ov.artifact_id, ov.title, "failed", exc.message)
 
@@ -226,7 +238,17 @@ def harvest_one(
         digest = media.sha256(mp3)
         check_cancel()
         step("Saving", 0.97)
-        final = naming.unique_path(naming.notebook_folder(out_dir, ov.notebook_title), ov.title)
+        if template and template != naming.DEFAULT_TEMPLATE:
+            final = naming.template_target(
+                out_dir,
+                template,
+                notebook=ov.notebook_title,
+                title=ov.title,
+                date=ov.created_at,
+                account=account.label,
+            )
+        else:
+            final = naming.unique_path(naming.notebook_folder(out_dir, ov.notebook_title), ov.title)
         part = final.with_name(final.name + ".part")
         shutil.copyfile(mp3, part)
         if media.sha256(part) != digest:
@@ -290,6 +312,7 @@ def harvest_many(
     downloader=None,
     on_item: Callable[..., None] | None = None,
     cancel: threading.Event | None = None,
+    template: str | None = None,
 ) -> list[ItemResult]:
     """Harvest several overviews one at a time, holding the global work lock.
 
@@ -319,6 +342,7 @@ def harvest_many(
                 downloader=downloader,
                 on_step=step,
                 cancel=cancel,
+                template=template,
             )
             if res.outcome in ("saved", "failed", "cancelled"):
                 ledger.record_attempt(

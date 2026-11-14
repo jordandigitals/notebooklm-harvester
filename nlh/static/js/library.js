@@ -3,7 +3,8 @@
 // only the rows in view (plus a buffer) exist in the page (pagination ruling 2026-11-14).
 import { api } from "./api.js";
 import { $, el, icon, button, pill, show, shortDate, duration, size, plural, STATUS_TEXT } from "./dom.js";
-import { toast, dialog, confirmDialog, promptDialog, popover, closePopover } from "./ui.js";
+import { toast, confirmDialog, promptDialog, popover, closePopover } from "./ui.js";
+import { openDrawer } from "./drawer.js";
 import {
   fold, parseQuery, haystack, matchesQuery, matchesFilters, comparator, highlightRanges,
 } from "./search.js";
@@ -37,6 +38,7 @@ export const lib = {
   views: [],
   demo: false,
   perf: [],
+  startJob: null,
   onChange: () => {},
 };
 
@@ -365,6 +367,8 @@ function renderActionBar() {
   if (parts.saved_but_missing) bits.push(`${parts.saved_but_missing.toLocaleString()} missing`);
   let text = `${rows.length.toLocaleString()} selected (${bits.join(", ")})`;
   if (hidden > 0) text += `. ${plural(hidden, "selected item")} hidden by filters will not be harvested.`;
+  const blocked = rows.filter((r) => !lib.accounts.get(r.account_id)?.folder_ok).length;
+  if (blocked) text += `. ${blocked.toLocaleString()} cannot start: their account has no reachable folder.`;
   $("sel-summary").textContent = text;
   $("sel-harvest").textContent = "";
   $("sel-harvest").append(icon("download"), document.createTextNode(`Harvest ${rows.length.toLocaleString()}`));
@@ -603,20 +607,7 @@ export function setQuery(text) {
 // ------------------------------------------------------------ details
 
 function openDetails(r) {
-  const a = lib.accounts.get(r.account_id);
-  const dl = el("dl", "helplist");
-  const add = (k, v) => { if (v === null || v === undefined || v === "") return; dl.append(el("dt", "muted", k), el("dd", "", String(v))); };
-  add("Status", STATUS_TEXT[r.status]);
-  add("Notebook", r.notebook);
-  add("Account", a ? `${a.label} (${a.email || ""})` : "");
-  add("Created", shortDate(r.created_at));
-  add("Saved", r.saved_at ? shortDate(r.saved_at) : "");
-  add("File", r.saved_path);
-  add("Length", r.duration_s ? duration(r.duration_s) : "");
-  add("Size", r.size_bytes ? size(r.size_bytes) : "");
-  add("Last error", r.last_error);
-  add("Overview id", r.artifact_id.slice(0, 12));
-  dialog({ title: r.title, body: dl, actions: [{ label: "Close", value: true, primary: true }] });
+  openDrawer(r, lib.accounts.get(r.account_id), { startJob: lib.startJob });
 }
 
 // ------------------------------------------------------------ saved views

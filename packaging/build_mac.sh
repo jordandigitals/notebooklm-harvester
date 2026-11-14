@@ -49,11 +49,11 @@ rm -rf build/pyinstaller "dist/$NAME.app" dist/NotebookLM-Harvester-mac-*
   --exclude-module playwright \
   nlh/app_entry.py
 
-cp packaging/THIRD-PARTY-NOTICES.txt "dist/$NAME.app/Contents/Resources/"
+cp nlh/static/THIRD-PARTY-NOTICES.txt "dist/$NAME.app/Contents/Resources/"
 STAGE="dist/NotebookLM-Harvester-mac-$ARCH-$VERSION"
 mkdir -p "$STAGE"
 cp -R "dist/$NAME.app" "$STAGE/"
-cp packaging/THIRD-PARTY-NOTICES.txt packaging/README-FIRST-mac.txt "$STAGE/"
+cp nlh/static/THIRD-PARTY-NOTICES.txt packaging/README-FIRST-mac.txt "$STAGE/"
 (cd dist && ditto -c -k --keepParent "$(basename "$STAGE")" "$(basename "$STAGE").zip")
 echo "Built dist/$(basename "$STAGE").zip"
 du -sh "dist/$NAME.app" "dist/$(basename "$STAGE").zip"
