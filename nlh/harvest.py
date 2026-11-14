@@ -134,8 +134,11 @@ def harvest_one(
     on_step: Callable[..., None] | None = None,
     cancel: threading.Event | None = None,
     template: str | None = None,
+    origin: str = "harvest",
 ) -> ItemResult:
     """Harvest a single overview into out_dir. Skips anything already saved.
+
+    origin is "harvest", or "studio" for an overview the Studio queue made (D-025).
 
     cancel is checked between safe steps (after the download, after converting, before
     saving). A cancelled item leaves no .part file and no ledger row (FLAG-P2: a download
@@ -266,6 +269,7 @@ def harvest_one(
                 size_bytes=part.stat().st_size,
                 duration_s=checked.duration,
                 sha256=digest,
+                origin=origin,
             )
             _place(part, final)
             placed = True

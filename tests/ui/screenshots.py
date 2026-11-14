@@ -123,7 +123,7 @@ def capture(out_dir: Path, prefix: str) -> list[str]:
                 " && getComputedStyle(e).overflowX !== 'visible'"
                 " && !e.matches('.hwrap, .sr-only, .rtitle, .rmeta, .rmeta > span, .lbl, .gname, .an, .ae,"
                 " .pl-title, .pl-sub, .hbar-name, .chip .lbl, .check .lbl, .folder code, .tt,"
-                " .jt, .jerr, .jh > span'))"
+                " .jt, .jerr, .jh > span, .bar'))"
                 ".map(e => e.tagName + '#' + e.id + '.' + e.className)"
             )
             if wide:
@@ -142,6 +142,99 @@ def capture(out_dir: Path, prefix: str) -> list[str]:
             return out.name
 
         made = []
+        if prefix.endswith("-studio-s2-mac"):
+            post = (
+                "async (b) => { await fetch('/api/settings', {method: 'POST', headers: {'X-NLH-Req': '1',"
+                " 'Content-Type': 'application/json'}, body: JSON.stringify(b)}); }"
+            )
+
+            def kept(pg, focus=None):
+                pg.evaluate(post, {"studio_ask_warned": True, "studio_daily_cap": 20})
+                # Clear what earlier shots left queued, so each shot shows only its own run.
+                pg.evaluate(
+                    "async () => { const q = await (await fetch('/api/studio/queue')).json();"
+                    " const h = {method: 'POST', headers: {'X-NLH-Req': '1'}};"
+                    " for (const r of q.rows) if (r.state === 'queued')"
+                    " await fetch(`/api/studio/queue/${r.id}/drop`, h); }"
+                )
+                pg.reload()
+                pg.wait_for_selector("body[data-ready='1']")
+                pg.wait_for_selector("#studio-account")
+                pg.select_option("#studio-account", index=1)
+                pg.wait_for_selector("#studio-nb-list .nb-option")
+                pg.fill("#studio-nb-find", "comets")
+                pg.locator("#studio-nb-list .nb-option").first.click()
+                pg.click("#studio-ask")
+                pg.wait_for_selector("#studio-plan", timeout=20000)
+                if pg.locator(".plan-row").count() == 0:
+                    pg.click("#studio-add-row")
+                    pg.locator(".plan-row input").fill("Manual overview")
+                for i, text in enumerate(focus or []):
+                    if i >= pg.locator(".plan-row").count():
+                        pg.click("#studio-add-row")
+                        pg.locator(".plan-row").last.locator("input").fill(f"Extra part {i}")
+                    pg.locator(".plan-row").nth(i).locator("textarea").fill(text)
+                pg.click("#studio-keep")
+                pg.wait_for_selector(".kept-plan")
+
+            def make_panel(pg):
+                kept(pg)
+                pg.locator(".kept-plan").first.locator("button", has_text="Make overviews").click()
+                pg.wait_for_selector(".make-panel")
+                pg.locator(".make-panel").scroll_into_view_if_needed()
+
+            def queued(pg, focus=None):
+                kept(pg, focus)
+                pg.locator(".kept-plan").first.locator("button", has_text="Make overviews").click()
+                pg.click("#studio-enqueue")
+                pg.wait_for_selector("#studio-queue")
+
+            def started(pg, focus=None):
+                queued(pg, focus)
+                pg.click("#studio-start")
+                pg.locator("#dlg[open]").wait_for()
+
+            def running(pg):
+                started(pg)
+                pg.locator("#dlg .btn-primary").click()
+                pg.wait_for_selector(".queue-row[data-state='generating']", timeout=15000)
+                pg.evaluate("document.querySelector('#view-studio').scrollTop = 0")
+
+            def finished(pg, focus=None):
+                started(pg, focus)
+                pg.locator("#dlg .btn-primary").click()
+                pg.wait_for_function(
+                    "window.__nlhTest.studio.queue() && !window.__nlhTest.studio.queue().running"
+                    " && window.__nlhTest.studio.queue().states.every(s => s !== 'queued')",
+                    timeout=120000,
+                )
+                pg.wait_for_timeout(600)
+                pg.evaluate("document.querySelector('#view-studio').scrollTop = 0")
+
+            q = "v=studio"
+            made.append(pair(1, "studio-make-panel", "light", query=q, setup=make_panel, height=1600))
+            made.append(pair(2, "studio-start-confirm", "dark", query=q, setup=started))
+            made.append(pair(3, "studio-queue-running", "light", query=q, setup=running, height=1300))
+            made.append(pair(4, "studio-queue-done-play", "dark", query=q, setup=finished, height=1300))
+            path = shot("studio-queue", 320, "light", query=q, setup=running, height=1500)
+            out = out_dir / f"{prefix}-shot-06-studio-queue-320-light.png"
+            out.write_bytes(path.read_bytes())
+            made.append(out.name)
+            made.append(
+                pair(
+                    5,
+                    "studio-queue-limit",
+                    "light",
+                    query=q,
+                    setup=lambda pg: finished(pg, ["short one", "this one hits the limit", "never sent"]),
+                    height=1300,
+                )
+            )
+            b.close()
+            for f in tmp.iterdir():
+                f.unlink()
+            tmp.rmdir()
+            return made + notes
         if prefix.endswith("-studio-s1-mac"):
             post = (
                 "async (b) => { await fetch('/api/settings', {method: 'POST', headers: {'X-NLH-Req': '1',"

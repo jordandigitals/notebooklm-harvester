@@ -7,13 +7,16 @@ nothing here runs on a timer. The adapter's StudioClient is the only write path.
 from __future__ import annotations
 
 import json
+import os
+from datetime import datetime, timedelta
 
 from flask import abort, jsonify, request
 
-from nlh import adapter, studio
+from nlh import adapter, demo, studio
 from nlh import settings as app_settings
 from nlh.ledger import Ledger
 from nlh.log import get_logger
+from nlh.studio_runner import StudioRunner
 
 log = get_logger()
 
@@ -22,6 +25,17 @@ MAX_QUESTION = 2000
 
 def register(app, led: Ledger, worker, get_account, body, account_listing) -> None:
     """Add the /api/studio routes to the app."""
+
+    led.recover_after_restart()  # rows left "submitting" become needs_review; nothing re-sent
+    if demo.enabled():  # quick demo runs; real runs use the 20 s check and the pause setting
+        runner = StudioRunner(
+            led,
+            poll_s=float(os.environ.get("NLH_DEMO_POLL_S", "1")),
+            pause_s=float(os.environ.get("NLH_DEMO_PAUSE_S", "2")),
+        )
+    else:
+        runner = StudioRunner(led)
+    app.config["STUDIO_RUNNER"] = runner  # tests reach it here
 
     def notebook_in(account_id: int, notebook_id: str):
         """The notebook from the account's listing, or None (the page cannot name others)."""
@@ -166,3 +180,174 @@ def register(app, led: Ledger, worker, get_account, body, account_listing) -> No
             abort(404)
         led.archive_plan(plan_id)
         return jsonify(ok=True)
+
+    # ------------------------------------------------------------ S2: queue and runner
+
+    def queue_view() -> dict:
+        s = app_settings.load()
+        day = studio.local_day()
+        return {
+            "rows": led.recent_queue(),
+            "runner": runner.view(),
+            "cap": s["studio_daily_cap"],
+            "used_today": {a.id: led.submitted_on(a.id, day) for a in led.accounts()},
+            "limited_today": [a.id for a in led.accounts() if led.limit_hit(a.id, day)],
+        }
+
+    @app.get("/api/studio/queue")
+    def studio_queue():
+        """The queue (unfinished rows and recent finished ones) and the runner's state."""
+        return jsonify(queue_view())
+
+    @app.post("/api/studio/queue")
+    def studio_enqueue():
+        """Queue overviews from a kept plan with Jordan's per-item settings. Sends nothing."""
+        data = body()
+        try:
+            plan = led.plan(int(data.get("plan_id")))
+        except (TypeError, ValueError):
+            plan = None
+        if not plan:
+            return jsonify(error="Choose a kept plan first."), 400
+        items = data.get("items")
+        if not isinstance(items, list) or not 1 <= len(items) <= studio.MAX_ITEMS:
+            return jsonify(error="Choose at least one overview to make."), 400
+        default_lang = app_settings.load()["studio_language"]
+        rows = []
+        for it in items:
+            if not isinstance(it, dict):
+                return jsonify(error="An overview in the request is not valid."), 400
+            try:
+                clean = studio.clean_items([it])[0]
+            except ValueError as exc:
+                return jsonify(error=str(exc)), 400
+            fmt = it.get("audio_format", "deep_dive")
+            length = it.get("audio_length", "default")
+            lang = str(it.get("language") or default_lang).strip()
+            if fmt not in adapter.AUDIO_FORMATS or length not in adapter.AUDIO_LENGTHS:
+                return jsonify(error="Unknown format or length."), 400
+            try:
+                lang = app_settings.validate({"studio_language": lang})["studio_language"]
+            except app_settings.SettingsError as exc:
+                return jsonify(error=str(exc)), 400
+            rows.append(
+                {
+                    "plan_id": plan["id"],
+                    "account_id": plan["account_id"],
+                    "notebook_id": plan["notebook_id"],
+                    "notebook_title": plan["notebook_title"],
+                    "title": clean["title"],
+                    "focus": clean["focus"],
+                    "audio_format": fmt,
+                    "audio_length": length,
+                    "language": lang,
+                }
+            )
+        ids = led.add_queue_items(rows)
+        log.info("studio queued %d items from plan %d", len(ids), plan["id"])
+        return jsonify(ids=ids, **queue_view())
+
+    @app.post("/api/studio/run")
+    def studio_run():
+        """Start or resume the queue (Jordan's click). Nothing else ever starts it."""
+        if not led.queue_items(("queued", "generating")):
+            return jsonify(error="Nothing is waiting in the queue."), 400
+        if not runner.start():
+            return jsonify(error="The queue is already running."), 409
+        return jsonify(queue_view())
+
+    @app.post("/api/studio/cancel")
+    def studio_cancel():
+        """Stop after the current safe step."""
+        runner.cancel()
+        return jsonify(queue_view())
+
+    def queue_row(item_id: int) -> dict:
+        row = led.queue_item(item_id)
+        if not row:
+            abort(404)
+        return row
+
+    @app.post("/api/studio/queue/<int:item_id>/drop")
+    def studio_drop(item_id):
+        """Drop a row that is not being worked on right now. Nothing is sent or deleted in
+        NotebookLM; if it was already made there, a normal harvest finds it."""
+        row = queue_row(item_id)
+        if row["state"] in ("done", "failed", "cancelled"):
+            return jsonify(error="This overview is already finished."), 400
+        if runner.state.running and runner.state.current == item_id:
+            return jsonify(error="This overview is being worked on. Use Cancel first."), 409
+        if row["state"] == "submitting":
+            return jsonify(error="This request is being sent right now. Try again in a moment."), 409
+        note = (
+            "Dropped. If NotebookLM already made it, a normal harvest will find it."
+            if row["state"] in ("generating", "needs_review")
+            else "Dropped before it was sent."
+        )
+        led.update_queue(item_id, state="cancelled", message=note)
+        return jsonify(queue_view())
+
+    @app.post("/api/studio/queue/<int:item_id>/requeue")
+    def studio_requeue(item_id):
+        """Queue a finished, failed, paused or dropped row again as a new row (counts again
+        when it is sent). Only from Jordan's click."""
+        row = queue_row(item_id)
+        if row["state"] not in ("failed", "cancelled", "paused_limit"):
+            return jsonify(error="Only a failed, paused or dropped overview can be queued again."), 400
+        fields = (
+            "plan_id",
+            "account_id",
+            "notebook_id",
+            "notebook_title",
+            "title",
+            "focus",
+            "audio_format",
+            "audio_length",
+            "language",
+        )
+        led.add_queue_items([{k: row[k] for k in fields}])
+        if row["state"] == "paused_limit":
+            led.update_queue(item_id, state="cancelled", message="Queued again as a new row.")
+        return jsonify(queue_view())
+
+    @app.post("/api/studio/queue/<int:item_id>/check")
+    def studio_check(item_id):
+        """For a row left "submitting" when the app stopped: look in the notebook (read-only)
+        for an overview made after it was sent. Found: follow it. Not found: it was not sent."""
+        row = queue_row(item_id)
+        if row["state"] != "needs_review":
+            return jsonify(error="Only an overview that needs checking can be checked."), 400
+        acct = get_account(row["account_id"])
+        try:
+            ovs = adapter.list_audio_overviews(
+                acct.profile_name, adapter.Notebook(row["notebook_id"], row["notebook_title"], None)
+            )
+        except adapter.AdapterError as exc:
+            return jsonify(error=exc.message), 502
+        linked = {r["task_id"] for r in led.queue_items() if r["task_id"]}
+        since = datetime.fromisoformat(row["submitted_at"]) - timedelta(minutes=2)
+        candidates = [
+            o
+            for o in ovs
+            if o.artifact_id not in linked
+            and led.harvest(o.artifact_id) is None
+            and o.created_at
+            and datetime.fromisoformat(o.created_at) >= since
+        ]
+        candidates.sort(key=lambda o: o.created_at)
+        if candidates:
+            led.update_queue(
+                item_id,
+                state="generating",
+                task_id=candidates[0].artifact_id,
+                message="Found in NotebookLM. Resume collects it.",
+            )
+            found = True
+        else:
+            led.update_queue(
+                item_id,
+                state="failed",
+                message="Not found in NotebookLM, so it was not made. Use Queue again to send it.",
+            )
+            found = False
+        return jsonify(found=found, **queue_view())

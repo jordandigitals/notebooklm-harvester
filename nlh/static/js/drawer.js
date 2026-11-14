@@ -78,7 +78,7 @@ export async function openDrawer(row, account, opts = {}) {
       field(kv, "Length", duration(s.duration_s));
       field(kv, "Size", size(s.size_bytes));
       field(kv, "Hash", (s.sha256 || "").slice(0, 16), s.sha256);
-      field(kv, "Found by", s.origin === "harvest" ? "" : s.origin === "relinked" ? "Scan folder (moved file)" : "Scan folder");
+      field(kv, "Found by", { harvest: "", studio: "Made in Studio", relinked: "Scan folder (moved file)", scan: "Scan folder" }[s.origin] ?? "");
       savedBox.append(el("h3", "", "Saved file"), kv);
       if (info.tags && Object.keys(info.tags).length) {
         const tk = el("dl", "kv");

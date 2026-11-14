@@ -96,6 +96,12 @@ CREATE TABLE IF NOT EXISTS studio_queue (
   harvest_id     INTEGER REFERENCES harvests(id),
   message        TEXT
 );
+CREATE TABLE IF NOT EXISTS studio_limits (
+  account_id     INTEGER NOT NULL REFERENCES accounts(id),
+  day            TEXT NOT NULL,
+  noted_at       TEXT NOT NULL,
+  PRIMARY KEY (account_id, day)
+);
 CREATE INDEX IF NOT EXISTS studio_queue_state ON studio_queue(state);
 CREATE INDEX IF NOT EXISTS studio_queue_day ON studio_queue(account_id, submit_day);
 """
@@ -145,7 +151,7 @@ class Harvest:
     duration_s: float
     sha256: str
     saved_at: str
-    origin: str = "harvest"  # harvest | scan | relinked (schema v3)
+    origin: str = "harvest"  # harvest | scan | relinked (schema v3) | studio (v4)
 
     @property
     def file_present(self) -> bool:
@@ -491,3 +497,102 @@ class Ledger:
             "SELECT COUNT(*) FROM studio_queue WHERE account_id = ? AND submit_day = ?", (account_id, day)
         ).fetchone()
         return int(r[0])
+
+    # queue rows ---------------------------------------------------------------
+
+    QUEUE_FIELDS = ("state", "task_id", "submitted_at", "submit_day", "finished_at", "harvest_id", "message")
+
+    def add_queue_items(self, rows: list[dict]) -> list[int]:
+        """Queue overviews to generate (state "queued"; nothing is sent yet)."""
+        ids = []
+        with self.transaction() as c:
+            for r in rows:
+                cur = c.execute(
+                    "INSERT INTO studio_queue (plan_id, account_id, notebook_id, notebook_title, title,"
+                    " focus, audio_format, audio_length, language, state, queued_at)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        r.get("plan_id"),
+                        r["account_id"],
+                        r["notebook_id"],
+                        r["notebook_title"],
+                        r["title"],
+                        r["focus"],
+                        r["audio_format"],
+                        r["audio_length"],
+                        r["language"],
+                        "queued",
+                        now(),
+                    ),
+                )
+                ids.append(int(cur.lastrowid))
+        return ids
+
+    def queue_items(self, states: tuple[str, ...] | None = None, limit: int = 200) -> list[dict]:
+        """Queue rows, oldest first, optionally only some states."""
+        sql = "SELECT * FROM studio_queue"
+        args: list = []
+        if states:
+            sql += f" WHERE state IN ({','.join('?' * len(states))})"
+            args += list(states)
+        rows = self.conn.execute(sql + " ORDER BY id LIMIT ?", (*args, limit)).fetchall()
+        return [dict(r) for r in rows]
+
+    def recent_queue(self, limit: int = 100) -> list[dict]:
+        """Unfinished rows plus the most recent finished ones, oldest first."""
+        rows = self.conn.execute(
+            "SELECT * FROM (SELECT * FROM studio_queue ORDER BY"
+            " (state IN ('done', 'failed', 'cancelled')), id DESC LIMIT ?) ORDER BY id",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def queue_item(self, item_id: int) -> dict | None:
+        """One queue row."""
+        r = self.conn.execute("SELECT * FROM studio_queue WHERE id = ?", (item_id,)).fetchone()
+        return dict(r) if r else None
+
+    def update_queue(self, item_id: int, **fields) -> None:
+        """Change a queue row's state and its facts (never deletes)."""
+        bad = set(fields) - set(self.QUEUE_FIELDS)
+        if bad:
+            raise ValueError(f"cannot update {bad}")
+        cols = ", ".join(f"{k} = ?" for k in fields)
+        with self.transaction() as c:
+            c.execute(f"UPDATE studio_queue SET {cols} WHERE id = ?", (*fields.values(), item_id))
+
+    def mark_submitting(self, item_id: int, day: str) -> bool:
+        """Count the item against the cap BEFORE the request goes out (a crash cannot undercount).
+        Returns False if the row was no longer queued."""
+        with self.transaction() as c:
+            cur = c.execute(
+                "UPDATE studio_queue SET state = 'submitting', submitted_at = ?, submit_day = ?"
+                " WHERE id = ? AND state = 'queued'",
+                (now(), day, item_id),
+            )
+            return cur.rowcount == 1
+
+    def note_limit(self, account_id: int, day: str) -> None:
+        """Remember that Google refused for a usage limit: no more requests that day."""
+        with self.transaction() as c:
+            c.execute(
+                "INSERT OR IGNORE INTO studio_limits (account_id, day, noted_at) VALUES (?, ?, ?)",
+                (account_id, day, now()),
+            )
+
+    def limit_hit(self, account_id: int, day: str) -> bool:
+        """True if Google refused this account for a limit on that day."""
+        r = self.conn.execute(
+            "SELECT 1 FROM studio_limits WHERE account_id = ? AND day = ?", (account_id, day)
+        ).fetchone()
+        return r is not None
+
+    def recover_after_restart(self) -> int:
+        """At start-up: a row left "submitting" may or may not have reached Google. It becomes
+        "needs_review" so Jordan checks it; nothing is sent again on its own."""
+        with self.transaction() as c:
+            cur = c.execute(
+                "UPDATE studio_queue SET state = 'needs_review', message = ? WHERE state = 'submitting'",
+                ("The app stopped while sending this request. Check NotebookLM before sending it again.",),
+            )
+            return cur.rowcount
