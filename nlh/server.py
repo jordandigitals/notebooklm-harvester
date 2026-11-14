@@ -68,6 +68,62 @@ PHONE_ENDPOINTS = frozenset(
     }
 )
 PHONE_OPEN_ENDPOINTS = frozenset({"phone_pair_page", "phone_pair_post"})  # before a phone is paired
+# What a phone does not need and must not see over plain HTTP: account emails, Chrome profiles,
+# folders and settings are dropped; full paths are cut to the file or folder name.
+PHONE_DROP_KEYS = frozenset(
+    {
+        "email",
+        "chrome_profile",
+        "output_dir",
+        "long_folder",
+        "default_output",
+        "naming_template",
+        "studio_shared_accounts",
+        "studio_ask_warned",
+        "phone_enabled",
+        "phone_port",
+        "sha256",
+    }
+)
+PHONE_NAME_KEYS = frozenset({"saved_path", "path", "folder"})
+
+
+def phone_scrub(value):
+    """Remove what a phone must not see from a JSON answer (see PHONE_DROP_KEYS)."""
+    if isinstance(value, dict):
+        out = {}
+        for k, v in value.items():
+            if k in PHONE_DROP_KEYS:
+                continue
+            if k in PHONE_NAME_KEYS and isinstance(v, str):
+                v = Path(v.replace("\\", "/")).name
+            out[k] = phone_scrub(v)
+        return out
+    if isinstance(value, list):
+        return [phone_scrub(v) for v in value]
+    return value
+
+
+class _PhoneStream:
+    """A phone response body that stops once the phone is removed or listening is off, and
+    always closes the file underneath (also when it is never read, as for HEAD)."""
+
+    def __init__(self, inner, still_ok):
+        self.inner, self.still_ok = inner, still_ok
+
+    def __iter__(self):
+        for chunk in self.inner:
+            if not self.still_ok():
+                break
+            yield chunk
+
+    def close(self):
+        """Close the wrapped file or iterator."""
+        close = getattr(self.inner, "close", None)
+        if close:
+            close()
+
+
 PHONE_OPEN_STATIC = frozenset({"app.css", "favicon.svg"})
 
 STALE_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -219,6 +275,7 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
         return None
 
     def phone_page(body: str, status: int = 200):
+        """A small page for the phone (not paired, pairing, refused)."""
         return PHONE_PAGE.replace("{{APP_NAME}}", APP_NAME).replace("{{BODY}}", body), status
 
     def phone_guard():
@@ -251,24 +308,19 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
         return None
 
     @app.after_request
-    def phone_streams(resp):
-        """A phone response stops at its next chunk once the phone is revoked or listening is off."""
+    def phone_responses(resp):
+        """Phone answers: JSON is scrubbed (no emails or full paths); streams stop on Remove or off."""
         token = g.get("phone_token")
-        if token and (resp.direct_passthrough or resp.is_streamed):
-            inner = resp.response
-
-            def checked():
-                try:
-                    for chunk in inner:
-                        if not phones.listening or phones.device_for(token) is None:
-                            break
-                        yield chunk
-                finally:
-                    close = getattr(inner, "close", None)
-                    if close:
-                        close()
-
-            resp.response = checked()
+        if not token:
+            return resp
+        if resp.mimetype == "application/json" and not resp.direct_passthrough:
+            data = resp.get_json(silent=True)
+            if data is not None:
+                resp.set_data(json.dumps(phone_scrub(data)))
+        elif resp.direct_passthrough or resp.is_streamed:
+            resp.response = _PhoneStream(
+                resp.response, lambda: phones.listening and phones.device_for(token) is not None
+            )
             resp.direct_passthrough = False
         return resp
 
@@ -832,8 +884,12 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
 
     @app.post("/api/settings")
     def put_settings():
+        """Save settings from the page. Phone listening is changed only through /api/phone/enable."""
+        data = body()
+        if isinstance(data, dict) and set(data) & app_settings.SERVER_ONLY:
+            return jsonify(error="Use Settings, Phone to change phone listening."), 400
         try:
-            return jsonify(app_settings.save(body()))
+            return jsonify(app_settings.save(data))
         except app_settings.SettingsError as exc:
             return jsonify(error=str(exc)), 400
 
@@ -1134,9 +1190,11 @@ def register_phone_routes(app, phones, phone_page) -> None:
     import html as _html
 
     def phone_view() -> dict:
+        """The laptop's Phone card state."""
         s = app_settings.load()
         return {
             "enabled": s["phone_enabled"],
+            "stopped_reason": phones.stopped_reason,
             "listening": phones.listening,
             "url": phones.url(),
             "address": phone.lan_address(),
@@ -1146,17 +1204,21 @@ def register_phone_routes(app, phones, phone_page) -> None:
 
     @app.get("/api/phone")
     def phone_state():
+        """Laptop only: listening state, address, paired phones."""
         return jsonify(phone_view())
 
     @app.post("/api/phone/enable")
     def phone_enable():
+        """Laptop only: turn phone listening on or off (takes effect at once)."""
         on = (request.get_json(silent=True) or {}).get("on") is True
         if on:
             port = app_settings.load()["phone_port"] or 0
             err = phones.start(app, port)
             if err:
                 return jsonify(error=err, **phone_view()), 409
-            app_settings.save({"phone_enabled": True, "phone_port": phones.port})
+            app_settings.save(
+                {"phone_enabled": True, "phone_port": phones.port, "phone_address": phones.address}
+            )
         else:
             phones.stop()
             app_settings.save({"phone_enabled": False})
@@ -1164,6 +1226,7 @@ def register_phone_routes(app, phones, phone_page) -> None:
 
     @app.post("/api/phone/pair")
     def phone_new_code():
+        """Laptop only: a new single-use pairing link and its QR code."""
         if not phones.listening:
             return jsonify(error="Turn on phone listening first."), 409
         code, ttl = phones.new_code()
@@ -1172,11 +1235,13 @@ def register_phone_routes(app, phones, phone_page) -> None:
 
     @app.post("/api/phone/devices/<device_id>/revoke")
     def phone_revoke(device_id):
+        """Laptop only: remove a paired phone; its next request and any stream stop."""
         if not phones.revoke(device_id):
             abort(404)
         return jsonify(phone_view())
 
     def pair_form(code: str, note: str = "") -> str:
+        """The phone's "name this phone" form."""
         return (
             "<p>Pair this phone with the laptop so you can browse and play your saved overviews here.</p>"
             + (f'<p class="error">{_html.escape(note)}</p>' if note else "")
@@ -1367,9 +1432,12 @@ def serve(open_browser: bool = True) -> int:
     app = create_app(token)
     server = make_server("127.0.0.1", port, app, threaded=True)
     app.config["stop"] = server.shutdown
-    if app_settings.load()["phone_enabled"]:  # stays on across restarts until turned off (D-026)
+    cfg = app_settings.load()
+    # Stays on across restarts until turned off (D-026), but only on the network it was turned on
+    # in: on another network (a cafe, a VPN) the person turns it on again himself.
+    if cfg["phone_enabled"] and phone.lan_address() and phone.lan_address() == cfg["phone_address"]:
         phones = app.config["PHONES"]
-        err = phones.start(app, app_settings.load()["phone_port"] or 0)
+        err = phones.start(app, cfg["phone_port"] or 0)
         if err:
             _say(f"Phone listening is on but could not start: {err}")
         else:

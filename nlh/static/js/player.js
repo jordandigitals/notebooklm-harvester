@@ -38,7 +38,10 @@ function mediaSession(title, notebook) {
   const a = state.audio;
   try {
     navigator.mediaSession.metadata = new MediaMetadata({ title, artist: notebook || "", album: document.title.split(" · ")[0] });
-    const seek = (d) => { a.currentTime = Math.max(0, Math.min((a.duration || 0) - 0.5, a.currentTime + d)); };
+    const seek = (d) => {
+      const end = Number.isFinite(a.duration) ? a.duration - 0.5 : Infinity; // length unknown yet: no upper clamp
+      a.currentTime = Math.max(0, Math.min(end, a.currentTime + d));
+    };
     navigator.mediaSession.setActionHandler("play", () => a.play());
     navigator.mediaSession.setActionHandler("pause", () => a.pause());
     navigator.mediaSession.setActionHandler("seekbackward", (e) => seek(-(e.seekOffset || 15)));

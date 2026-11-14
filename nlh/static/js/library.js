@@ -648,10 +648,12 @@ export function openViewsMenu(anchor) {
       await saveViews(lib.views.filter((x) => x !== v));
       toast(`View "${v.name}" deleted.`);
     });
-    item.append(b, del);
+    item.append(b);
+    if (!role.phone) item.append(del); // the phone can apply views, not change them
     menu.append(item);
   }
   if (!lib.views.length) menu.append(el("p", "hint", "No saved views yet."));
+  if (role.phone) { popover(anchor, menu, "Saved views"); return; }
   menu.append(el("div", "sepline"));
   const save = button("Save current view", { cls: "", iconName: "plus" });
   save.addEventListener("click", async () => {

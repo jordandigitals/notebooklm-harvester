@@ -80,7 +80,7 @@ async function loadState() {
   const banners = $("banners");
   // Tool and demo banners come from the server inside the page (no shift); only add the rest.
   banners.querySelector(".portable-banner")?.remove();
-  if (st.portable && !st.portable_ack) {
+  if (st.portable && !st.portable_ack && !role.phone) {
     const n = noticeBanner("warn portable-banner", "Portable mode. This copy keeps its data, including your Google sign-ins, in the \"data\" folder beside the app. Do not keep it on a shared drive or a drive you might lose, and do not hand that folder to anyone.");
     n.append(button("I understand", { cls: "btn btn-sm", onClick: async () => { await api("/api/portable-ack", { method: "POST" }); n.remove(); } }));
     banners.append(n);

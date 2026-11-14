@@ -98,7 +98,8 @@ function build(view) {
     menu.append(el("p", "hint", `Exports all ${plural(hist.total, "matching file")}, not only this page. No sign-in data is included.`));
     popover(e.currentTarget, menu, "Export");
   });
-  bar.append(search, sortLab, filt, exp);
+  bar.append(search, sortLab, filt);
+  if (!role.phone) bar.append(exp); // export stays on the laptop (not a listening action)
   const chips = el("div", "chips");
   chips.id = "h-chips";
   const info = el("div", "resultbar");

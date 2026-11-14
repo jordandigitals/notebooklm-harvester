@@ -235,6 +235,7 @@ export async function renderSettings() {
 
 
 let phoneTimer = null;
+let livePair = null; // {link, qr_svg, until}: kept so a redraw does not lose a code that still works
 
 /** Fill the Phone card: the on/off switch, the address, pairing (link and QR code) and paired phones. */
 async function drawPhone(card) {
@@ -247,7 +248,7 @@ async function drawPhone(card) {
   const box = el("input");
   box.type = "checkbox";
   box.id = "phone-enable";
-  box.checked = ph.listening;
+  box.checked = ph.enabled;
   box.addEventListener("change", async () => {
     try { await api("/api/phone/enable", { method: "POST", body: { on: box.checked } }); toast(box.checked ? "Phone listening is on." : "Phone listening is off. Phones can no longer connect."); }
     catch (e) { toast(e.message, "bad"); }
@@ -255,7 +256,7 @@ async function drawPhone(card) {
   });
   lab.append(box, el("span", "lbl", "Allow my phone on this Wi-Fi"));
   card.append(lab);
-  if (ph.enabled && !ph.listening) card.append(el("p", "error", "Phone listening is on but not running. Check the Wi-Fi, then turn it off and on again."));
+  if (ph.enabled && !ph.listening) card.append(el("p", "error", `${ph.stopped_reason || "Phone listening is on but not running on this network."} Turn it off and on again to listen on the network you are on now.`));
   if (ph.listening) {
     const addr = el("p", "");
     addr.append(el("span", "hint", "Address for the phone: "), el("code", "phone-link", ph.url));
@@ -265,6 +266,11 @@ async function drawPhone(card) {
     const pairBtn = button("Pair a phone", { cls: "btn btn-primary", iconName: "plus", onClick: async () => {
       try {
         const r = await api("/api/phone/pair", { method: "POST" });
+        livePair = { link: r.link, qr_svg: r.qr_svg, until: Date.now() + r.expires_s * 1000 };
+        showPair(r);
+      } catch (e) { toast(e.message, "bad"); }
+    } });
+    const showPair = (r) => {
         const qr = el("div", "phone-qr");
         qr.innerHTML = r.qr_svg; // SVG made on the laptop by the app, no user text in it
         qr.setAttribute("role", "img");
@@ -279,11 +285,13 @@ async function drawPhone(card) {
         tick();
         phoneTimer = setInterval(tick, 1000);
         pairBox.replaceChildren(pairBtn, qr, link, left);
-      } catch (e) { toast(e.message, "bad"); }
-    } });
+    };
     pairBtn.id = "phone-pair-btn";
     pairBox.append(pairBtn);
     card.append(pairBox);
+    if (livePair && livePair.until > Date.now() + 1000 && ph.code_left_s) {
+      showPair({ ...livePair, expires_s: Math.min(ph.code_left_s, Math.round((livePair.until - Date.now()) / 1000)) });
+    }
   }
   card.append(el("h3", "", "Paired phones"));
   if (!ph.devices.length) card.append(el("p", "hint", "No phone is paired yet."));

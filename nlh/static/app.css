@@ -512,3 +512,4 @@ body.has-player .actionbar { bottom: 132px; }
 .phone-link { font-family: var(--mono); font-size: 0.85rem; overflow-wrap: anywhere; }
 .phone-devices { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--s2); }
 .phone-devices li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); padding: var(--s2) var(--s3); border: 1px solid var(--line); border-radius: var(--r-sm); }
+.phone-pair { display: grid; gap: var(--s3); justify-items: start; }

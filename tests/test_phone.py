@@ -314,3 +314,83 @@ def test_real_listener_binds_lan_only(app, home):
         phones.stop()
     with pytest.raises(OSError):
         socket.create_connection((addr, phones.port), timeout=1).close()
+
+
+# ---------------------------------------------------------------- code review fixes
+
+
+def test_phone_answers_carry_no_emails_or_full_paths(app, ledger):
+    ledger.update_account(ledger.accounts()[0].id, email="private@example.com", chrome_profile="Profile 2")
+    tok = paired(app)
+    c = phone_client(app, tok)
+    hid = ledger.harvest("a1").id
+    for path in ("/api/state", "/api/library", "/api/settings", "/api/history/page", "/api/item/a1"):
+        body = c.get(path).get_data(as_text=True)
+        assert "private@example.com" not in body and "Profile 2" not in body, path
+        assert str(ledger.harvest("a1").saved_path) not in body, path
+    rows = c.get("/api/history/page").get_json()["rows"]
+    assert rows[0]["path"] == "Soil.mp3" and rows[0]["folder"] == "Garden"  # names stay for the page
+    assert hid  # the laptop still sees everything
+    lap = app.test_client().get("/api/state", headers=H).get_data(as_text=True)
+    assert "private@example.com" in lap
+
+
+def test_phone_keys_not_writable_through_generic_settings(app):
+    lap = app.test_client()
+    for key, val in (("phone_enabled", True), ("phone_port", 80), ("phone_address", "1.2.3.4")):
+        r = lap.post("/api/settings", json={key: val}, headers={**H, "X-NLH-Req": "1"})
+        assert r.status_code == 400, key
+
+
+def test_one_bad_device_entry_does_not_drop_the_others(home):
+    st = phone.PhoneState(clock=Clock())
+    code, _ = st.new_code()
+    token = st.pair(code, "Good")
+    f = home / "phones.json"
+    data = json.loads(f.read_text())
+    data["devices"].insert(0, {"id": "x", "broken": True})
+    data["devices"].append({**data["devices"][-1], "id": "zz", "token_hash": "h2", "extra": 1})
+    f.write_text(json.dumps(data))
+    again = phone.PhoneState()
+    again.load()
+    assert again.device_for(token) is not None and len(again.list_devices()) == 2
+
+
+@pytest.mark.parametrize(
+    "name,tunnel",
+    [
+        ("utun4", True),
+        ("wg0", True),
+        ("tun0", True),
+        ("ppp0", True),
+        ("en0", False),
+        ("wlan0", False),
+        (None, False),
+    ],
+)
+def test_tunnel_interfaces_refused(name, tunnel):
+    assert phone.is_tunnel(name) is tunnel
+
+
+def test_listener_closes_when_the_network_changes(app, home, monkeypatch):
+    addr = phone.lan_address()
+    if addr is None:
+        pytest.skip("no private LAN address on this machine")
+    monkeypatch.setattr(phone, "WATCH_S", 0.2)
+    st = phone.PhoneState()
+    assert st.start(app, 0) is None
+    monkeypatch.setattr(phone, "lan_address", lambda: "10.9.9.9")  # moved to another network
+    import time
+
+    for _ in range(50):
+        if not st.listening:
+            break
+        time.sleep(0.1)
+    assert not st.listening and "another network" in st.stopped_reason
+
+
+def test_head_request_on_a_phone_stream_closes_cleanly(app, ledger):
+    tok = paired(app)
+    c = phone_client(app, tok)
+    r = c.open(f"/api/play/{ledger.harvest('a1').id}", method="HEAD")
+    assert r.status_code == 200 and r.data == b""

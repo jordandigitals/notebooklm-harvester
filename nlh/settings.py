@@ -72,6 +72,7 @@ DEFAULTS = {
     "history_page_size": 50,
     "phone_enabled": False,  # D-026: listen on the home network for paired phones
     "phone_port": 0,  # remembered so the phone's bookmark keeps working
+    "phone_address": "",  # the LAN address last used; listening restarts by itself only there
     "views": None,  # None means "use DEFAULT_VIEWS"
     # Studio (D-025)
     "studio_daily_cap": 4,  # generated overviews per account per local day
@@ -80,6 +81,8 @@ DEFAULTS = {
     "studio_ask_warned": False,  # the one-time warning about chat messages was shown
     "studio_language": "en",
 }
+# Keys the server sets itself (the generic settings route refuses them).
+SERVER_ONLY = frozenset({"phone_enabled", "phone_port", "phone_address"})
 STUDIO_CAP_RANGE = (1, 20)
 STUDIO_PAUSE_RANGE = (30, 300)
 
@@ -183,6 +186,8 @@ def validate(update: dict) -> dict:
         elif key == "phone_enabled":
             if not isinstance(value, bool):
                 raise SettingsError("That setting must be on or off.")
+        elif key == "phone_address":
+            value = _text(value, "The phone address", 45)
         elif key == "phone_port":
             if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 65535:
                 raise SettingsError("Port must be a number from 0 to 65535.")

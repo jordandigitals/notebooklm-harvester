@@ -19,6 +19,7 @@ import json
 import os
 import secrets
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -61,6 +62,37 @@ def is_private_lan(addr: str) -> bool:
     )
 
 
+TUNNEL_PREFIXES = ("utun", "tun", "tap", "wg", "ppp", "ipsec", "gif", "stf", "zt", "tailscale", "nord")
+WATCH_S = 10.0
+
+
+def interface_of(addr: str) -> str | None:
+    """The network interface that holds an address (macOS and Linux; None if unknown)."""
+    try:
+        if sys.platform == "darwin":
+            out = subprocess.run(["ifconfig"], capture_output=True, text=True, timeout=5).stdout
+            name = None
+            for line in out.splitlines():
+                if line and not line[0].isspace():
+                    name = line.split(":", 1)[0]
+                elif f"inet {addr} " in line:
+                    return name
+        elif sys.platform.startswith("linux"):
+            out = subprocess.run(["ip", "-o", "-4", "addr"], capture_output=True, text=True, timeout=5).stdout
+            for line in out.splitlines():
+                parts = line.split()
+                if len(parts) > 3 and parts[3].split("/")[0] == addr:
+                    return parts[1]
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return None
+
+
+def is_tunnel(ifname: str | None) -> bool:
+    """True for a VPN or tunnel interface: the phone on Wi-Fi cannot reach it, VPN peers could."""
+    return bool(ifname) and ifname.lower().startswith(TUNNEL_PREFIXES)
+
+
 def lan_address() -> str | None:
     """The laptop's address on the local network, or None.
 
@@ -75,7 +107,9 @@ def lan_address() -> str | None:
         return None
     finally:
         s.close()
-    return addr if is_private_lan(addr) else None
+    if not is_private_lan(addr) or is_tunnel(interface_of(addr)):
+        return None
+    return addr
 
 
 @dataclass
@@ -89,6 +123,7 @@ class Device:
     last_seen: str | None = None
 
     def view(self) -> dict:
+        """What the laptop's list shows (never the hash)."""
         return {"id": self.id, "name": self.name, "created_at": self.created_at, "last_seen": self.last_seen}
 
 
@@ -112,22 +147,35 @@ class PhoneState:
     clock: object = time.monotonic
     lock: threading.RLock = field(default_factory=threading.RLock)
     _seen_written: dict[str, float] = field(default_factory=dict)
+    stopped_reason: str = ""
 
     # ------------------------------------------------------------ devices
 
     def load(self) -> None:
-        """Read paired devices from <home>/phones.json (a damaged file means no devices)."""
+        """Read paired devices from <home>/phones.json. Each entry is read on its own and unknown
+        fields are ignored, so one damaged entry never drops the others."""
         with self.lock:
             self.devices = {}
             try:
                 data = json.loads(_file().read_text(encoding="utf-8"))
-                for d in data.get("devices", []):
-                    dev = Device(**d)
-                    self.devices[dev.token_hash] = dev
-            except (OSError, ValueError, TypeError):
-                pass
+            except (OSError, ValueError):
+                return
+            for d in data.get("devices", []) if isinstance(data, dict) else []:
+                try:
+                    dev = Device(
+                        id=str(d["id"]),
+                        name=str(d["name"]),
+                        token_hash=str(d["token_hash"]),
+                        created_at=str(d["created_at"]),
+                        last_seen=d.get("last_seen"),
+                    )
+                except (KeyError, TypeError, AttributeError):
+                    log.warning("phones.json: one entry could not be read and was skipped")
+                    continue
+                self.devices[dev.token_hash] = dev
 
     def _save(self) -> None:
+        """Write the paired devices atomically, owner-only."""
         target = _file()
         tmp = target.with_suffix(".json.tmp")
         data = {"devices": [vars(d) for d in self.devices.values()]}
@@ -153,6 +201,7 @@ class PhoneState:
                 self._save()
 
     def list_devices(self) -> list[dict]:
+        """Paired phones for the laptop's list, oldest first (no token hashes)."""
         with self.lock:
             return sorted((d.view() for d in self.devices.values()), key=lambda d: d["created_at"])
 
@@ -177,18 +226,23 @@ class PhoneState:
             self.codes[code] = _Code(self.clock() + PAIR_TTL_S)
             return code, PAIR_TTL_S
 
+    def _live(self, c: _Code | None) -> bool:
+        """True for a code that is unused and not expired (the one rule for codes)."""
+        return bool(c and not c.used and self.clock() < c.expires)
+
     def code_valid(self, code: str) -> bool:
+        """True if the code can still pair a phone."""
         with self.lock:
-            c = self.codes.get(code or "")
-            return bool(c and not c.used and self.clock() < c.expires)
+            return self._live(self.codes.get(code or ""))
 
     def code_left_s(self) -> int | None:
         """Seconds left on the current code, for the laptop's countdown."""
         with self.lock:
-            live = [c for c in self.codes.values() if not c.used and self.clock() < c.expires]
+            live = [c for c in self.codes.values() if self._live(c)]
             return round(live[0].expires - self.clock()) if live else None
 
     def _recent(self, who: str) -> deque:
+        """Failed tries from one address in the last minute."""
         q = self.attempts.setdefault(who, deque())
         now = self.clock()
         while q and now - q[0] > 60:
@@ -210,7 +264,7 @@ class PhoneState:
         name = " ".join((name or "").split())[:NAME_MAX] or "Phone"
         with self.lock:
             c = self.codes.get(code or "")
-            if not c or c.used or self.clock() >= c.expires:
+            if not self._live(c):
                 return None
             c.used = True
             token = secrets.token_urlsafe(32)
@@ -246,8 +300,22 @@ class PhoneState:
             self.server, self.address, self.port = srv, addr, srv.server_port
             self.thread = threading.Thread(target=srv.serve_forever, daemon=True, name="nlh-phone")
             self.thread.start()
+            self.stopped_reason = ""
+            threading.Thread(
+                target=self._watch, args=(srv, addr), daemon=True, name="nlh-phone-watch"
+            ).start()
             log.info("phone listener on the local network, port %d", self.port)
             return None
+
+    def _watch(self, srv, addr: str) -> None:
+        """Close the listener if the laptop's network address changes (another network, a VPN)."""
+        while self.server is srv:
+            time.sleep(WATCH_S)
+            if self.server is srv and lan_address() != addr:
+                self.stopped_reason = "The laptop moved to another network, so phone listening stopped."
+                log.info("phone listener stopped: network changed")
+                self.stop()
+                return
 
     def stop(self) -> None:
         """Close the LAN listener now; streams in progress end at their next chunk."""
@@ -260,6 +328,7 @@ class PhoneState:
             log.info("phone listener closed")
 
     def url(self) -> str | None:
+        """The address the phone opens, while listening."""
         return f"http://{self.address}:{self.port}" if self.server is not None else None
 
 
@@ -270,11 +339,13 @@ class _Marked:
         self.app = app
 
     def __call__(self, environ, start_response):
+        """Mark and pass on one request."""
         environ[ENV_MARK] = True
         return self.app(environ, start_response)
 
 
 def _file():
+    """Where paired devices are kept."""
     return paths.app_home() / "phones.json"
 
 
