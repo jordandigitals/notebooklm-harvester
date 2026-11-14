@@ -252,6 +252,9 @@ def test_cancel_during_generation_keeps_it_for_resume(ledger, setup, g):
 
 @pytest.fixture
 def client(ledger, setup, g):
+    listing = [(adapter.Notebook("nb1", "Garden", None, "owner"), [])]
+    for acct in setup[:2]:
+        ledger.save_listing(acct.id, server._dump_listing(listing))
     app = server.create_app(TOKEN, ledger)
     app.testing = True
     return app, app.test_client()

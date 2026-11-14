@@ -70,6 +70,16 @@ class DemoRow:
     duration_s: float = 0.0
 
 
+def demo_role(notebook_id: str) -> str:
+    """Deterministic demo roles (P2-B): most notebooks owned, some shared as editor or viewer."""
+    n = int(notebook_id.rsplit("-", 1)[-1])
+    if n % 11 == 4:
+        return "editor"
+    if n % 13 == 6:
+        return "viewer"
+    return "owner"
+
+
 def enabled() -> bool:
     """True when demo mode is switched on."""
     return os.environ.get(ENV_FLAG) == "1"
@@ -216,11 +226,14 @@ def seed(ledger, rows: list[DemoRow] | None = None) -> None:
     by_account: dict[int, dict[str, tuple]] = {}
     for r in rows:
         nbs = by_account.setdefault(r.account, {})
-        nb, ovs = nbs.setdefault(r.notebook_id, (adapter.Notebook(r.notebook_id, r.notebook_title, None), []))
+        role = demo_role(r.notebook_id)
+        nb, ovs = nbs.setdefault(
+            r.notebook_id, (adapter.Notebook(r.notebook_id, r.notebook_title, None, role), [])
+        )
         status = "in_progress" if r.status == "in_progress" else "completed"
         ovs.append(
             adapter.AudioOverview(
-                r.artifact_id, r.title, r.notebook_id, r.notebook_title, r.created_at, status
+                r.artifact_id, r.title, r.notebook_id, r.notebook_title, r.created_at, status, role
             )
         )
     for i, acct in enumerate(accts):

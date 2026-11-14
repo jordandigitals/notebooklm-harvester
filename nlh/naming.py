@@ -55,6 +55,16 @@ def safe_stem(title: str) -> str:
     return text[:MAX_STEM].rstrip(". ")
 
 
+SHARED_PREFIX = "Shared - "
+
+
+def folder_title(notebook_title: str, shared: bool) -> str:
+    """The notebook name used for its folder: notebooks shared with the account get "Shared - " in
+    front, so other people's notebooks never mix with the account's own (P2-B). Tags and the
+    ledger keep the real notebook title."""
+    return f"{SHARED_PREFIX}{notebook_title}" if shared else notebook_title
+
+
 def folder_name(notebook_title: str) -> str:
     """Name of a notebook's subfolder (D-019): same rules as file names, max MAX_FOLDER."""
     return safe_stem(notebook_title)[:MAX_FOLDER].rstrip(". ") or "Notebook"

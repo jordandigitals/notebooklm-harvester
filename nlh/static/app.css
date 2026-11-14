@@ -513,3 +513,13 @@ body.has-player .actionbar { bottom: 132px; }
 .phone-devices { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--s2); }
 .phone-devices li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); padding: var(--s2) var(--s3); border: 1px solid var(--line); border-radius: var(--r-sm); }
 .phone-pair { display: grid; gap: var(--s3); justify-items: start; }
+
+/* Shared with me (P2-B) */
+.rbadge-shared { background: var(--info-soft); color: var(--info); }
+.gname .rbadge-shared { margin-left: var(--s2); font-size: 0.72rem; vertical-align: middle; }
+.sel-shared { min-height: 32px; font-size: 0.85rem; }
+.is-phone .sel-shared { display: none !important; }
+.nb-option.is-disabled { opacity: 0.75; cursor: not-allowed; }
+.nb-option .nb-note { display: block; font-size: 0.8rem; }
+.vgroup-li { position: absolute; left: 0; right: 0; height: var(--group-h); }
+.vgroup-li > .vgroup { position: static; height: 100%; }

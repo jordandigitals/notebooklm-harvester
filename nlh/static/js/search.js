@@ -6,7 +6,7 @@ export function fold(text) {
   return String(text || "").normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase();
 }
 
-const PREFIXES = ["account", "notebook", "status", "before", "after"];
+const PREFIXES = ["account", "notebook", "status", "before", "after", "shared"];
 export const STATUS_WORDS = {
   new: "new",
   saved: "saved",
@@ -21,14 +21,18 @@ export const STATUS_WORDS = {
 
 /** Split a query into words and prefix terms; "quoted text" stays one word. */
 export function parseQuery(query) {
-  const out = { words: [], account: [], notebook: [], status: [], before: null, after: null };
+  const out = { words: [], account: [], notebook: [], status: [], before: null, after: null, shared: null };
   const re = /(\w+):"([^"]*)"|(\w+):(\S+)|"([^"]*)"|(\S+)/g;
   let m;
   while ((m = re.exec(String(query || ""))) !== null) {
     const key = (m[1] || m[3] || "").toLowerCase();
     const val = m[2] !== undefined ? m[2] : m[4];
     if (key && PREFIXES.includes(key)) {
-      if (key === "before" || key === "after") {
+      if (key === "shared") {
+        const v = fold(val);
+        if (["yes", "y", "true", "1"].includes(v)) out.shared = true;
+        else if (["no", "n", "false", "0"].includes(v)) out.shared = false;
+      } else if (key === "before" || key === "after") {
         if (/^\d{4}-\d{2}-\d{2}$/.test(val)) out[key] = val;
       } else if (key === "status") {
         const s = STATUS_WORDS[fold(val).replace(/[^a-z]/g, "")];
@@ -63,6 +67,7 @@ export function matchesQuery(row, hay, accountHay, q) {
     for (const n of q.notebook) if (!nb.includes(n)) return false;
   }
   if (q.status.length && !q.status.includes(row.status)) return false;
+  if (q.shared !== null && q.shared !== undefined && !!row.shared !== q.shared) return false;
   const created = (row.created_at || "").slice(0, 10);
   if (q.before && !(created && created < q.before)) return false;
   if (q.after && !(created && created > q.after)) return false;
@@ -96,6 +101,7 @@ export function matchesFilters(row, f, now = new Date(), except = null) {
   if (except !== "status" && f.status && f.status.length && !f.status.includes(row.status)) return false;
   if (except !== "account" && f.account && f.account.length && !f.account.includes(row.account_id)) return false;
   if (except !== "notebook" && f.notebook && f.notebook.length && !f.notebook.includes(row.notebook_id)) return false;
+  if (except !== "owner" && f.owner && f.owner.length && !f.owner.includes(row.shared ? "shared" : "own")) return false;
   if (except !== "created" && !inRange(row.created_at, f.created, now)) return false;
   if (except !== "saved" && f.saved && !inRange(row.saved_at, f.saved, now)) return false;
   if (except !== "multi" && f.multi && !row.multi) return false;

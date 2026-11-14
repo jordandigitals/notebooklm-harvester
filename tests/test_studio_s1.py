@@ -167,7 +167,10 @@ def app_client(ledger, monkeypatch):
     acct = ledger.add_account("p1", "Work", "w@example.com")
     ledger.update_account(acct.id, last_status="ok")
     listing = [
-        (Notebook("nb1", "Garden", None), [AudioOverview("a1", "T", "nb1", "Garden", None, "completed")])
+        (
+            Notebook("nb1", "Garden", None, "owner"),
+            [AudioOverview("a1", "T", "nb1", "Garden", None, "completed")],
+        )
     ]
     ledger.save_listing(acct.id, server._dump_listing(listing))
     calls = []
@@ -259,7 +262,20 @@ def test_keep_plan_and_hide(app_client):
 def test_notebooks_route(app_client):
     c, acct, _ = app_client
     r = c.get(f"/api/studio/notebooks?account_id={acct.id}", headers=H).get_json()
-    assert r == {"loaded": True, "notebooks": [{"id": "nb1", "title": "Garden", "overviews": 1}]}
+    assert r == {
+        "loaded": True,
+        "notebooks": [
+            {
+                "id": "nb1",
+                "title": "Garden",
+                "overviews": 1,
+                "role": "owner",
+                "shared": False,
+                "studio_ok": True,
+                "studio_note": None,
+            }
+        ],
+    }
 
 
 def test_limit_refusal_maps_to_limit_state():

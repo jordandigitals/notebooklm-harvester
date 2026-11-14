@@ -599,7 +599,13 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
         wanted = set(data.get("artifact_ids") or [])
         redo = set(data.get("redownload") or [])
         if data.get("all_new"):
-            chosen = [ov for ov in all_ovs if harvest.overview_status(led, ov) == harvest.NEW]
+            # Other people's notebooks are never harvested in bulk unless asked (P2-B).
+            include_shared = data.get("include_shared") is True
+            chosen = [
+                ov
+                for ov in all_ovs
+                if harvest.overview_status(led, ov) == harvest.NEW and (include_shared or not ov.shared)
+            ]
         else:
             chosen = [ov for ov in all_ovs if ov.artifact_id in wanted | redo]
         if not chosen:
@@ -669,6 +675,8 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
                             "account_id": a.id,
                             "notebook_id": nb.id,
                             "notebook": nb.title,
+                            "role": nb.role,
+                            "shared": nb.shared,
                             "artifact_id": ov.artifact_id,
                             "title": ov.title,
                             "created_at": ov.created_at,
@@ -956,8 +964,18 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
             return False, "This file is outside the account's current output folder. Use Show in folder."
         return True, ""
 
-    def history_row(h, accts: dict) -> dict:
+    def notebook_roles() -> dict[str, str]:
+        """Notebook id to role, from every account's cached listing (the ledger keeps no role)."""
+        roles: dict[str, str] = {}
+        for a in led.accounts():
+            if ensure_listing(a.id):
+                for nb, _ovs in library[a.id]:
+                    roles[nb.id] = nb.role
+        return roles
+
+    def history_row(h, accts: dict, roles: dict | None = None) -> dict:
         acct = accts.get(h.account_id)
+        role = (roles or {}).get(h.notebook_id, "unknown")
         present = h.file_present
         ok, why = playable(h, acct) if present else (False, "")
         return {
@@ -967,6 +985,8 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
             "title": h.overview_title,
             "notebook": h.notebook_title,
             "notebook_id": h.notebook_id,
+            "role": role,
+            "shared": role in adapter.SHARED_ROLES,
             "artifact_id": h.artifact_id,
             "created_at": h.created_at,
             "saved_at": h.saved_at,
@@ -992,8 +1012,23 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
         size = request.args.get("size", 50, type=int)
         if size not in app_settings.PAGE_SIZES:
             size = 50
-        rows, total = led.history_page(history_filters(), sort, page, size)
-        return jsonify(total=total, page=page, size=size, rows=[history_row(h, accts) for h in rows])
+        roles = notebook_roles()
+        f = history_filters()
+        shared_ids = sorted(k for k, v in roles.items() if v in adapter.SHARED_ROLES)
+        counts = {
+            "owner": led.history_count({**f, "shared_ids": shared_ids, "shared": "no"}),
+            "shared": led.history_count({**f, "shared_ids": shared_ids, "shared": "yes"}),
+        }
+        if request.args.get("shared") in ("yes", "no"):
+            f.update(shared_ids=shared_ids, shared=request.args["shared"])
+        rows, total = led.history_page(f, sort, page, size)
+        return jsonify(
+            total=total,
+            page=page,
+            size=size,
+            shared_counts=counts,
+            rows=[history_row(h, accts, roles) for h in rows],
+        )
 
     @app.get("/api/history/notebooks")
     def history_notebooks():

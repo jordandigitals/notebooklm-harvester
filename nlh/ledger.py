@@ -393,6 +393,14 @@ class Ledger:
             if f.get(key) not in (None, ""):
                 where.append(f"{col} {op} ?")
                 args.append(f[key])
+        if f.get("shared") in ("yes", "no"):  # notebook ids shared with the account, from the listings
+            ids = [str(i) for i in f.get("shared_ids") or []]
+            if ids:
+                op = "IN" if f["shared"] == "yes" else "NOT IN"
+                where.append(f"h.notebook_id {op} ({','.join('?' * len(ids))})")
+                args += ids
+            elif f["shared"] == "yes":
+                where.append("0 = 1")
         for word in fold(str(f.get("q") or "")).split():
             where.append(
                 "fold(h.overview_title || ' ' || h.notebook_title || ' ' || h.saved_path || ' ' "
@@ -601,3 +609,11 @@ class Ledger:
         """Every task id any queue row follows (all rows, not a page of them)."""
         rows = self.conn.execute("SELECT task_id FROM studio_queue WHERE task_id IS NOT NULL").fetchall()
         return {r[0] for r in rows}
+
+    def history_count(self, f: dict) -> int:
+        """How many history rows match the filters (for facet counts)."""
+        where, args = self._history_where(f)
+        r = self.conn.execute(
+            f"SELECT COUNT(*) FROM harvests h LEFT JOIN accounts a ON a.id = h.account_id WHERE {where}", args
+        ).fetchone()
+        return int(r[0])

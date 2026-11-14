@@ -56,6 +56,28 @@ class Notebook:
     id: str
     title: str
     created_at: str | None
+    # This account's permission (owner, editor, viewer) from the list row; "unknown" for a cached
+    # listing made before roles were kept, until the next Refresh.
+    role: str = "unknown"
+
+    @property
+    def shared(self) -> bool:
+        """Shared with this account by someone else (editor or viewer)."""
+        return self.role in SHARED_ROLES
+
+
+ROLE_NAMES = {1: "owner", 2: "editor", 3: "viewer"}
+SHARED_ROLES = ("editor", "viewer")
+
+
+def _role(n) -> str:
+    """The account's role on a library notebook row (role, not is_owner, which cannot tell
+    an editor from a viewer)."""
+    r = getattr(n, "role", None)
+    try:
+        return ROLE_NAMES.get(int(r), "unknown") if r is not None else "unknown"
+    except (TypeError, ValueError):
+        return "unknown"
 
 
 @dataclass(frozen=True)
@@ -68,6 +90,12 @@ class AudioOverview:
     notebook_title: str
     created_at: str | None
     status: str
+    notebook_role: str = "unknown"  # the notebook's role for this account (see Notebook.role)
+
+    @property
+    def shared(self) -> bool:
+        """From a notebook shared with this account."""
+        return self.notebook_role in SHARED_ROLES
 
     @property
     def completed(self) -> bool:
@@ -331,7 +359,9 @@ def list_notebooks(profile_name: str) -> list[Notebook]:
     async def go():
         async with _client(profile_name) as client:
             rows = await _with_backoff(lambda: client.notebooks.list())
-            return [Notebook(n.id, n.title or "Untitled notebook", _iso(n.created_at)) for n in rows]
+            return [
+                Notebook(n.id, n.title or "Untitled notebook", _iso(n.created_at), _role(n)) for n in rows
+            ]
 
     return _run(go())
 
@@ -345,6 +375,7 @@ def _overview(a, nb: Notebook) -> AudioOverview:
         notebook_title=nb.title,
         created_at=_iso(a.created_at),
         status=STATUS_NAMES.get(int(a.status), "unknown"),
+        notebook_role=nb.role,
     )
 
 
@@ -357,7 +388,9 @@ def list_library(
         out = []
         async with _client(profile_name) as client:
             rows = await _with_backoff(lambda: client.notebooks.list())
-            notebooks = [Notebook(n.id, n.title or "Untitled notebook", _iso(n.created_at)) for n in rows]
+            notebooks = [
+                Notebook(n.id, n.title or "Untitled notebook", _iso(n.created_at), _role(n)) for n in rows
+            ]
             for i, nb in enumerate(notebooks):
                 if on_progress:
                     on_progress(f"Reading notebook {i + 1} of {len(notebooks)}")

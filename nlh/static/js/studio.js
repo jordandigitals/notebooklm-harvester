@@ -154,14 +154,19 @@ function notebookCard() {
     const rows = st.notebooks.filter((n) => !q || n.title.toLowerCase().includes(q));
     list.replaceChildren(el("legend", "sr-only", "Notebook"));
     for (const n of rows.slice(0, 200)) {
-      const l = el("label", "nb-option");
+      const l = el("label", n.studio_ok ? "nb-option" : "nb-option is-disabled");
       const r = el("input");
       r.type = "radio";
       r.name = "studio-nb";
       r.value = n.id;
+      r.disabled = !n.studio_ok; // view only or role unknown: Studio may not write here (P2-B)
       r.checked = st.notebook && st.notebook.id === n.id;
       r.addEventListener("change", () => { st.notebook = { id: n.id, title: n.title }; askBtn.disabled = !!st.asking; chosen.textContent = `Chosen: ${n.title}`; });
-      l.append(r, el("span", "grow", n.title), el("span", "hint", plural(n.overviews, "overview")));
+      const name = el("span", "grow");
+      name.append(document.createTextNode(n.title));
+      if (n.shared) name.append(" ", el("span", "rbadge rbadge-shared", n.role === "viewer" ? "Shared, view only" : "Shared with me"));
+      if (!n.studio_ok) name.append(el("span", "hint nb-note", n.role === "viewer" ? "View only: Studio cannot ask or generate here." : "Refresh this account first."));
+      l.append(r, name, el("span", "hint", plural(n.overviews, "overview")));
       list.append(l);
     }
     if (!rows.length) list.append(el("p", "hint", "No notebook matches."));
@@ -189,7 +194,7 @@ function notebookCard() {
   askBtn.disabled = !st.notebook || !!st.asking;
   const row = el("div", "row");
   row.append(askBtn);
-  c.append(flab, list, chosen, qd, row, el("p", "hint", "Asking sends one message in that notebook's chat, on its current conversation. It does not make any audio."));
+  c.append(flab, list, chosen, qd, row, el("p", "hint", "Asking sends one message in that notebook's chat, on its current conversation. It does not make any audio. Notebooks shared with you as view only cannot be used here; a shared notebook appears after you have opened it once in NotebookLM."));
   fill();
   return c;
 }

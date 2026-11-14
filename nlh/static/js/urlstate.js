@@ -3,7 +3,7 @@
 import { lib, emptyFilters } from "./library.js";
 import { parseQuery } from "./search.js";
 
-const LIST_KEYS = { status: "status", acct: "account", nb: "notebook" };
+const LIST_KEYS = { status: "status", acct: "account", nb: "notebook", own: "owner" };
 
 /** Encode the library state as a query string. */
 export function encode(view) {

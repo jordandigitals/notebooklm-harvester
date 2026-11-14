@@ -43,7 +43,7 @@ export const lib = {
 };
 
 export function emptyFilters() {
-  return { status: [], account: [], notebook: [], created: null, saved: null, multi: false, clash: false,
+  return { status: [], account: [], notebook: [], owner: [], created: null, saved: null, multi: false, clash: false,
     moved: false, include: "", exclude: "" };
 }
 
@@ -219,6 +219,7 @@ function renderGroup(item, i) {
   b.setAttribute("aria-expanded", lib.collapsed.has(g.key) ? "false" : "true");
   const gname = el("span", "gname");
   gname.append(highlighted(g.label));
+  if (lib.group === "notebook" && g.rows[0] && g.rows[0].shared) gname.append(el("span", "rbadge rbadge-shared", "Shared with me"));
   b.append(icon("chevron", "icon chev"), gname,
     el("span", "gcount", `${g.rows.length} · ${item.counts.new} new · ${item.counts.saved} saved`));
   b.addEventListener("click", () => {
@@ -228,7 +229,11 @@ function renderGroup(item, i) {
     lib.onChange();
   });
   b.dataset.index = i;
-  return b;
+  // The list may only hold list items, so the header button sits inside one (axe: aria-required-children).
+  const li = el("div", "vgroup-li");
+  li.setAttribute("role", "listitem");
+  li.append(b);
+  return li;
 }
 
 function highlighted(text) {
@@ -269,6 +274,7 @@ function renderRow(r, i) {
   const nb = el("span");
   nb.append(highlighted(r.notebook || ""));
   meta.append(nb);
+  if (r.shared) meta.append(el("span", "rbadge rbadge-shared", "Shared with me"));
   if (lib.scope === "all") {
     const a = lib.accounts.get(r.account_id);
     if (a) meta.append(el("span", "rbadge", a.label));
@@ -338,7 +344,9 @@ export function selectAllVisible() {
   render(); renderActionBar();
 }
 export function selectNew() {
-  for (const r of lib.filtered) if (r.status === "new") lib.selection.add(r._key);
+  // Other people's notebooks are left out unless "Include shared" is ticked (P2-B).
+  const withShared = $("sel-include-shared")?.checked;
+  for (const r of lib.filtered) if (r.status === "new" && (withShared || !r.shared)) lib.selection.add(r._key);
   render(); renderActionBar();
 }
 export function invertSelection() {
@@ -401,7 +409,7 @@ export async function harvestSelection(startJob) {
 function activeFilterCount() {
   const f = lib.filters;
   return f.status.length + f.account.length + f.notebook.length + (f.created ? 1 : 0) + (f.saved ? 1 : 0)
-    + (f.multi ? 1 : 0) + (f.clash ? 1 : 0) + (f.moved ? 1 : 0) + (f.include ? 1 : 0) + (f.exclude ? 1 : 0);
+    + (f.owner ? f.owner.length : 0) + (f.multi ? 1 : 0) + (f.clash ? 1 : 0) + (f.moved ? 1 : 0) + (f.include ? 1 : 0) + (f.exclude ? 1 : 0);
 }
 
 function renderCounts() {
@@ -439,6 +447,7 @@ function renderChips() {
   for (const a of f.account) add(`Account: ${lib.accounts.get(a)?.label || a}`, () => { f.account = f.account.filter((x) => x !== a); });
   const nbNames = new Map(lib.rows.map((r) => [r.notebook_id, r.notebook]));
   for (const n of f.notebook) add(`Notebook: ${nbNames.get(n) || n}`, () => { f.notebook = f.notebook.filter((x) => x !== n); });
+  for (const o of f.owner || []) add(o === "shared" ? "Shared with me" : "My notebooks", () => { f.owner = f.owner.filter((x) => x !== o); });
   if (f.created) add(`Created ${rangeText(f.created)}`, () => { f.created = null; });
   if (f.saved) add(`Saved ${rangeText(f.saved)}`, () => { f.saved = null; });
   if (f.multi) add("Notebooks with several overviews", () => { f.multi = false; });
@@ -556,6 +565,15 @@ export function renderFilters() {
     .sort((a, b) => b.count - a.count || fold(a.label).localeCompare(fold(b.label)));
   box.append(listSection("Notebooks", nbEntries, f.notebook,
     (v, on) => { f.notebook = on ? [...f.notebook, v] : f.notebook.filter((x) => x !== v); apply(); renderFilters(); }));
+  const ow = facet("owner", (r) => (r.shared ? "shared" : "own"));
+  if (!f.owner) f.owner = [];
+  const ownerSec = listSection("Owner", [
+    { value: "own", label: "My notebooks", count: ow.get("own") || 0 },
+    { value: "shared", label: "Shared with me", count: ow.get("shared") || 0 },
+  ], f.owner, (v, on) => { f.owner = on ? [...f.owner, v] : f.owner.filter((x) => x !== v); apply(); renderFilters(); });
+  ownerSec.append(el("p", "hint", "A notebook shared with you appears here after you have opened it once in NotebookLM."));
+  box.append(ownerSec);
+  $("sel-shared-wrap")?.classList.toggle("is-hidden", !(ow.get("shared") > 0));
   box.append(dateSection("Created", "created"));
   box.append(dateSection("Saved", "saved"));
   const more = el("section");

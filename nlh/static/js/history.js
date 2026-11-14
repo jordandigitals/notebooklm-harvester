@@ -14,6 +14,8 @@ export const hist = {
   q: "",
   accounts: [],
   notebooks: [],
+  shared: "", // "", "yes" (shared with me) or "no" (my notebooks)
+  sharedCounts: { owner: 0, shared: 0 },
   savedFrom: "", savedTo: "",
   sizeMin: "", sizeMax: "", lengthMin: "", lengthMax: "",
   total: 0,
@@ -38,6 +40,7 @@ export function historyQuery(extra = {}) {
   if (hist.q) p.set("q", hist.q);
   if (hist.accounts.length) p.set("accounts", hist.accounts.join(","));
   for (const n of hist.notebooks) p.append("notebook", n);
+  if (hist.shared) p.set("shared", hist.shared);
   if (hist.savedFrom) p.set("saved_from", hist.savedFrom);
   if (hist.savedTo) p.set("saved_to", hist.savedTo);
   if (hist.sizeMin !== "") p.set("size_min", String(Number(hist.sizeMin) * 1e6));
@@ -52,6 +55,7 @@ export function historyQuery(extra = {}) {
 async function fetchPage(append = false) {
   const data = await api(`/api/history/page?${historyQuery({ page: hist.page, size: hist.size })}`);
   hist.total = data.total;
+  if (data.shared_counts) hist.sharedCounts = data.shared_counts;
   hist.rows = append ? [...hist.rows, ...data.rows] : data.rows;
 }
 
@@ -186,7 +190,19 @@ async function openFilters(anchor) {
     sec.append(row);
     return sec;
   };
-  box.append(accSec, nbSec, range("Saved date", "savedFrom", "savedTo", "", "date"),
+  const ownSec = el("section");
+  ownSec.append(el("h3", "", "Owner"));
+  for (const [v, label, n] of [["no", "My notebooks", hist.sharedCounts.owner], ["yes", "Shared with me", hist.sharedCounts.shared]]) {
+    const lab = el("label", "check");
+    const c = el("input");
+    c.type = "checkbox";
+    c.checked = hist.shared === v;
+    c.addEventListener("change", () => { hist.shared = c.checked ? v : ""; hist.page = 1; renderHistory(); closePopover(); });
+    lab.append(c, el("span", "lbl", label), el("span", "count", String(n || 0)));
+    ownSec.append(lab);
+  }
+  ownSec.append(el("p", "hint", "A notebook shared with you appears here after you have opened it once in NotebookLM."));
+  box.append(accSec, nbSec, ownSec, range("Saved date", "savedFrom", "savedTo", "", "date"),
     range("Size", "sizeMin", "sizeMax", "MB"), range("Length", "lengthMin", "lengthMax", "minutes"));
   popover(anchor, box, "History filters");
 }
@@ -275,7 +291,10 @@ function drawRows() {
     for (const r of hist.rows) {
       const li = el("li", "hcard");
       li.append(el("div", "ht", r.title));
-      li.append(el("div", "hint", `${r.notebook} · ${r.account}`));
+      const where = el("div", "hint");
+      where.append(document.createTextNode(`${r.notebook} · ${r.account}`));
+      if (r.shared) where.append(" ", el("span", "rbadge rbadge-shared", "Shared with me"));
+      li.append(where);
       li.append(el("div", "hint", `${duration(r.duration_s)} · ${size(r.size_bytes)} · saved ${shortDate(r.saved_at)}`));
       const folderName = r.folder.split(/[\\/]/).filter(Boolean).pop() || r.folder;
       const fl = el("div", "hint folder-line");
@@ -306,7 +325,9 @@ function drawRows() {
       if (r.file_name !== expectedName(r.title)) t.append(el("div", "hp", r.file_name));
       const st = status(r);
       if (st) t.append(st);
-      row.append(t, el("td", "", r.notebook), el("td", "", r.account), el("td", "nowrap", shortDate(r.saved_at)),
+      const nbCell = el("td", "", r.notebook);
+      if (r.shared) nbCell.append(" ", el("span", "rbadge rbadge-shared", "Shared with me"));
+      row.append(t, nbCell, el("td", "", r.account), el("td", "nowrap", shortDate(r.saved_at)),
         el("td", "num", duration(r.duration_s)), el("td", "num", size(r.size_bytes)));
       const act = el("td");
       act.append(actions(r));

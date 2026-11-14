@@ -22,6 +22,7 @@ log = get_logger()
 
 MAX_QUESTION = 2000
 REQUEUED = "Queued again"
+STUDIO_ROLES = ("owner", "editor")  # P2-B: Studio never writes where the account may not
 
 
 def register(app, led: Ledger, worker, get_account, body, account_listing) -> None:
@@ -44,6 +45,16 @@ def register(app, led: Ledger, worker, get_account, body, account_listing) -> No
             if nb.id == notebook_id:
                 return nb
         return None
+
+    def studio_refusal(nb) -> str | None:
+        """Studio may write only where the account may (owner or editor); unknown waits for Refresh."""
+        if nb.role in STUDIO_ROLES:
+            return None
+        if nb.role == "viewer":
+            return "This notebook is shared with you as view only. Studio cannot ask or generate here."
+        return (
+            "Refresh this account's notebooks first, so the app knows whether Studio may use this notebook."
+        )
 
     def account_rows() -> list[dict]:
         shared = set(app_settings.load()["studio_shared_accounts"])
@@ -102,7 +113,18 @@ def register(app, led: Ledger, worker, get_account, body, account_listing) -> No
         listing = account_listing(account_id)
         if listing is None:
             return jsonify(loaded=False, notebooks=[])
-        rows = [{"id": nb.id, "title": nb.title, "overviews": len(ovs)} for nb, ovs in listing]
+        rows = [
+            {
+                "id": nb.id,
+                "title": nb.title,
+                "overviews": len(ovs),
+                "role": nb.role,
+                "shared": nb.shared,
+                "studio_ok": studio_refusal(nb) is None,
+                "studio_note": studio_refusal(nb),
+            }
+            for nb, ovs in listing
+        ]
         rows.sort(key=lambda r: r["title"].casefold())
         return jsonify(loaded=True, notebooks=rows)
 
@@ -118,6 +140,8 @@ def register(app, led: Ledger, worker, get_account, body, account_listing) -> No
         nb = notebook_in(account_id, str(data.get("notebook_id") or ""))
         if nb is None:
             return jsonify(error="Choose a notebook from this account's list."), 400
+        if studio_refusal(nb):
+            return jsonify(error=studio_refusal(nb)), 403
         question = str(data.get("question") or "").strip() or studio.DEFAULT_QUESTION
         if len(question) > MAX_QUESTION:
             return jsonify(error=f"The question can be at most {MAX_QUESTION} characters."), 400
@@ -166,6 +190,8 @@ def register(app, led: Ledger, worker, get_account, body, account_listing) -> No
         nb = notebook_in(account_id, str(data.get("notebook_id") or ""))
         if nb is None:
             return jsonify(error="Choose a notebook from this account's list."), 400
+        if studio_refusal(nb):
+            return jsonify(error=studio_refusal(nb)), 403
         try:
             items = studio.clean_items(data.get("items"))
         except ValueError as exc:
@@ -210,6 +236,11 @@ def register(app, led: Ledger, worker, get_account, body, account_listing) -> No
             plan = None
         if not plan:
             return jsonify(error="Choose a kept plan first."), 400
+        nb = notebook_in(plan["account_id"], plan["notebook_id"])
+        if nb is None or studio_refusal(nb):
+            return jsonify(
+                error=studio_refusal(nb) if nb else "This notebook is no longer in the account's list."
+            ), 403
         items = data.get("items")
         if not isinstance(items, list) or not 1 <= len(items) <= studio.MAX_ITEMS:
             return jsonify(error="Choose at least one overview to make."), 400

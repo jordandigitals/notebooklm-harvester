@@ -182,6 +182,8 @@ def test_harvest_these_n_beyond_rendered_rows(browser, server, data):
     assert shown(page) == want
     rendered = page.evaluate("window.__nlhTest.renderedRowCount()")
     assert rendered < len(want)
+    if page.locator("#sel-include-shared").is_visible():  # P2-B: Select new skips shared unless ticked
+        page.check("#sel-include-shared")
     page.click("#sel-new")
     assert sorted(page.evaluate("window.__nlhTest.selectedInView()")) == sorted(want)
     assert page.inner_text("#sel-summary").startswith(f"{len(want):,} selected")

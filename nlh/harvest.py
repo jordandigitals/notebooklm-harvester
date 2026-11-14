@@ -181,13 +181,13 @@ def harvest_one(
             naming.check_template_fits(
                 out_dir,
                 template,
-                notebook=ov.notebook_title,
+                notebook=naming.folder_title(ov.notebook_title, ov.shared),
                 title=ov.title,
                 date=ov.created_at,
                 account=account.label,
             )
         else:
-            naming.check_fits(out_dir, ov.notebook_title)
+            naming.check_fits(out_dir, naming.folder_title(ov.notebook_title, ov.shared))
     except naming.PathTooLong as exc:
         return ItemResult(ov.artifact_id, ov.title, "failed", exc.message)
 
@@ -245,13 +245,15 @@ def harvest_one(
             final = naming.template_target(
                 out_dir,
                 template,
-                notebook=ov.notebook_title,
+                notebook=naming.folder_title(ov.notebook_title, ov.shared),
                 title=ov.title,
                 date=ov.created_at,
                 account=account.label,
             )
         else:
-            final = naming.unique_path(naming.notebook_folder(out_dir, ov.notebook_title), ov.title)
+            final = naming.unique_path(
+                naming.notebook_folder(out_dir, naming.folder_title(ov.notebook_title, ov.shared)), ov.title
+            )
         part = final.with_name(final.name + ".part")
         shutil.copyfile(mp3, part)
         if media.sha256(part) != digest:

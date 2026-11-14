@@ -117,7 +117,11 @@ def cmd_harvest(ledger: Ledger, a) -> int:
         wanted = tuple(a.artifact)
         ovs = [ov for ov in ovs if ov.artifact_id.startswith(wanted)]
     else:
-        ovs = [ov for ov in ovs if harvest.overview_status(ledger, ov) == harvest.NEW]
+        ovs = [
+            ov
+            for ov in ovs
+            if harvest.overview_status(ledger, ov) == harvest.NEW and (a.include_shared or not ov.shared)
+        ]
     if not ovs:
         print("Nothing new to harvest.")
         return 0
@@ -167,6 +171,11 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--account", required=True)
     s.add_argument("--out")
     s.add_argument("--artifact", action="append", help="artifact id or prefix (repeatable)")
+    s.add_argument(
+        "--include-shared",
+        action="store_true",
+        help="also harvest new overviews from notebooks shared with you (skipped by default)",
+    )
     sub.add_parser("ledger")
     sub.add_parser("chrome", help="list Chrome profiles on this computer")
     s = sub.add_parser("add-chrome", help="add an account from a Chrome profile")
