@@ -29,6 +29,7 @@ WORK_LOCK = threading.Lock()
 NEW = "new"
 SAVED = "saved"
 MISSING = "saved_but_missing"
+UNREACHABLE = "folder_unreachable"
 IN_PROGRESS = "in_progress"
 
 
@@ -43,14 +44,50 @@ class ItemResult:
     saved_path: str | None = None
 
 
+def folder_reachable(saved_path: str, output_dir: str | None) -> bool:
+    """Is the place a saved file should be reachable (FINDING-1)?
+
+    A missing file on an unplugged or offline drive must read "folder not reachable", not
+    "file missing": re-downloading then would repoint the ledger away from a file that
+    still exists. Reachable when the file's folder exists, or when the account's output
+    folder exists and holds the file's path (the user removed a notebook subfolder). For a
+    file outside the output folder, unreachable when its nearest existing parent is a
+    drive root or mount point (the volume is gone).
+    """
+    path = Path(saved_path)
+    if path.parent.is_dir():
+        return True
+    if output_dir:
+        out = Path(output_dir)
+        inside = _inside(path, out)
+        if inside:
+            return out.is_dir()
+    probe = path.parent
+    while not probe.exists() and probe != probe.parent:
+        probe = probe.parent
+    return not (probe == probe.parent or os.path.ismount(probe))
+
+
+def _inside(path: Path, folder: Path) -> bool:
+    """True if path is folder or below it (no resolving: the drive may be gone)."""
+    try:
+        path.relative_to(folder)
+        return True
+    except ValueError:
+        return False
+
+
 def overview_status(ledger: Ledger, ov: AudioOverview) -> str:
-    """new, saved, saved_but_missing or in_progress (R3)."""
+    """new, saved, saved_but_missing, folder_unreachable or in_progress (R3, FINDING-1)."""
     if not ov.completed:
         return IN_PROGRESS
     row = ledger.harvest(ov.artifact_id)
     if row is None:
         return NEW
-    return SAVED if row.file_present else MISSING
+    if row.file_present:
+        return SAVED
+    acct = ledger.account(row.account_id)
+    return MISSING if folder_reachable(row.saved_path, acct.output_dir if acct else None) else UNREACHABLE
 
 
 def _place(part: Path, final: Path) -> None:
@@ -99,6 +136,14 @@ def harvest_one(
         return ItemResult(ov.artifact_id, ov.title, "skipped", "Not finished in NotebookLM yet.")
     if status == SAVED:
         return ItemResult(ov.artifact_id, ov.title, "skipped", "Already saved.")
+    if status == UNREACHABLE:
+        return ItemResult(
+            ov.artifact_id,
+            ov.title,
+            "skipped",
+            "The folder holding this file is not reachable (drive unplugged or offline). "
+            "Nothing was changed.",
+        )
     if status == MISSING and not redownload:
         return ItemResult(ov.artifact_id, ov.title, "skipped", "Saved before, but the file is missing.")
 

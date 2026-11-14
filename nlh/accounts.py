@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import threading
+from datetime import UTC, datetime
 from pathlib import Path
 
 from nlh import adapter, paths
@@ -44,6 +46,47 @@ def _signin(fn, *args) -> SessionStatus:
         SIGNIN_LOCK.release()
 
 
+def _trash_profile(name: str) -> Path | None:
+    """Move a failed or refused add's profile folder to <home>/trash (FINDING-3, never deleted).
+
+    The folder may hold a half-finished Google sign-in; it must not linger under profiles/.
+    """
+    src = paths.profile_dir(name)
+    if not src.exists():
+        return None
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    dest = paths.trash_dir() / f"{name}-{stamp}"
+    n = 2
+    while dest.exists():
+        dest = paths.trash_dir() / f"{name}-{stamp}-{n}"
+        n += 1
+    shutil.move(str(src), str(dest))
+    log.info("moved profile %s to trash", name)
+    return dest
+
+
+def trash_entries() -> list[dict]:
+    """What is in the trash (folder names and sizes only)."""
+    out = []
+    for item in sorted(paths.trash_dir().iterdir()):
+        size = sum(f.stat().st_size for f in item.rglob("*") if f.is_file()) if item.is_dir() else 0
+        out.append({"name": item.name, "size_bytes": size})
+    return out
+
+
+def clear_trash() -> int:
+    """Remove the trash folders (asked first in the page). App data only, never user files."""
+    count = 0
+    for item in paths.trash_dir().iterdir():
+        if item.is_dir():
+            shutil.rmtree(item, ignore_errors=True)
+        else:
+            item.unlink(missing_ok=True)
+        count += 1
+    log.info("cleared %d trash entries", count)
+    return count
+
+
 def chrome_candidates(ledger: Ledger) -> list[tuple[ChromeProfile, bool]]:
     """Chrome profiles on this machine, each with whether its email is already an account."""
     known = {(a.email or "").lower() for a in ledger.accounts()}
@@ -60,8 +103,15 @@ def add_from_chrome(ledger: Ledger, folder: str) -> tuple[Account, SessionStatus
     if existing:
         raise AccountError(f"{prof.email} is already added as '{existing[0].label}'.")
     name = _profile_name(ledger, prof.email)
-    status = _signin(adapter.login_from_chrome, name, prof.folder, prof.email)
+    try:
+        status = _signin(adapter.login_from_chrome, name, prof.folder, prof.email)
+    except AccountError:
+        raise  # another sign-in is running; this one never started
+    except Exception:
+        _trash_profile(name)
+        raise
     if not status.ok:
+        _trash_profile(name)
         raise AccountError(status.message)
     acct = ledger.add_account(name, prof.name, prof.email, prof.folder)
     ledger.update_account(acct.id, last_status=status.state, last_checked=now())
@@ -72,10 +122,18 @@ def add_from_chrome(ledger: Ledger, folder: str) -> tuple[Account, SessionStatus
 def add_interactive(ledger: Ledger, label: str | None = None) -> tuple[Account, SessionStatus]:
     """Add an account through a fresh Google sign-in in Chrome."""
     name = _profile_name(ledger, None)
-    status = _signin(adapter.login_interactive, name)
+    try:
+        status = _signin(adapter.login_interactive, name)
+    except AccountError:
+        raise  # another sign-in is running; this one never started
+    except Exception:
+        _trash_profile(name)
+        raise
     if not status.ok:
+        _trash_profile(name)
         raise AccountError(status.message)
     if status.email and any((a.email or "").lower() == status.email.lower() for a in ledger.accounts()):
+        _trash_profile(name)
         raise AccountError(f"{status.email} is already added.")
     acct = ledger.add_account(name, label or status.email or name, status.email, None)
     ledger.update_account(acct.id, last_status=status.state, last_checked=now())

@@ -118,7 +118,6 @@ class Worker:
 def create_app(token: str, ledger: Ledger | None = None) -> Flask:
     """Build the Flask app. Every request needs the launch token and a local Host."""
     app = Flask(__name__, static_folder=None)
-    _clear_stale_temp()
     led = ledger or Ledger()
     worker = Worker()
     library: dict[int, list] = {}  # account id -> [(Notebook, [AudioOverview])]
@@ -212,6 +211,18 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
         if stopper:
             threading.Timer(0.3, stopper).start()
         return jsonify(ok=True)
+
+    @app.get("/api/trash")
+    def trash_list():
+        """Folders moved to the trash by failed or refused sign-ins (FINDING-3)."""
+        return jsonify(accounts.trash_entries())
+
+    @app.post("/api/trash/clear")
+    def trash_clear():
+        """Remove the trash folders; the page asks first and sends confirm=true."""
+        if body().get("confirm") is not True:
+            return jsonify(error="Confirm first."), 400
+        return jsonify(ok=True, removed=accounts.clear_trash())
 
     @app.post("/api/portable-ack")
     def portable_ack():
@@ -439,6 +450,7 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
     def history():
         account_id = request.args.get("account", type=int)
         labels = {a.id: a.label for a in led.accounts()}
+        outputs = {a.id: a.output_dir for a in led.accounts()}
         return jsonify(
             [
                 {
@@ -451,6 +463,8 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
                     "duration_s": h.duration_s,
                     "size_bytes": h.size_bytes,
                     "present": h.file_present,
+                    "reachable": h.file_present
+                    or harvest.folder_reachable(h.saved_path, outputs.get(h.account_id)),
                 }
                 for h in led.harvests(account_id)
             ]
@@ -620,13 +634,19 @@ def serve(open_browser: bool = True) -> int:
     """Start the local server and open the page in the default browser."""
     from werkzeug.serving import make_server
 
-    running = _running_url()
-    if running:
-        # Already running: just show it.
+    lock = paths.AppLock()
+    if not lock.acquire():
+        # Another process owns this app home (FINDING-2): show its page instead.
+        running = _running_url()
         _say(f"{APP_NAME} is already running.")
-        if open_browser:
+        if running and open_browser:
             webbrowser.open(running)
+        elif not running:
+            _say("Another copy is starting or stopping. Try again in a few seconds.")
         return 0
+    # Only the lock holder may clear temp folders: a second process must never remove
+    # the first one's download in progress.
+    _clear_stale_temp()
     port, token = _server_settings()
     app = create_app(token)
     server = make_server("127.0.0.1", port, app, threaded=True)
@@ -642,4 +662,6 @@ def serve(open_browser: bool = True) -> int:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
+    finally:
+        lock.release()
     return 0

@@ -160,14 +160,64 @@ async def _with_backoff(make_call: Callable, sleep=asyncio.sleep):
             await sleep(delay)
 
 
-def _client(profile_name: str):
-    """Open a library client on one account's session file."""
+class _ReadOnlyNotebooks:
+    """Only notebooks.list (FINDING-5)."""
+
+    def __init__(self, inner):
+        self.list = inner.notebooks.list
+
+    def __getattr__(self, name):
+        raise AttributeError(f"{name} is not allowed: the harvester is read-only toward NotebookLM")
+
+
+class _ReadOnlyArtifacts:
+    """Only artifacts.list_audio and artifacts.download_audio (FINDING-5)."""
+
+    def __init__(self, inner):
+        self.list_audio = inner.artifacts.list_audio
+        self.download_audio = inner.artifacts.download_audio
+
+    def __getattr__(self, name):
+        raise AttributeError(f"{name} is not allowed: the harvester is read-only toward NotebookLM")
+
+
+class ReadOnlyClient:
+    """Wraps a library client so only the three read calls exist (ARCH-RULES 1, FINDING-5).
+
+    notebooks.list, artifacts.list_audio and artifacts.download_audio are copied across as
+    bound methods; anything else, however it is reached, raises AttributeError. The AST
+    guard test stays as a second line.
+    """
+
+    def __init__(self, inner):
+        self.notebooks = _ReadOnlyNotebooks(inner)
+        self.artifacts = _ReadOnlyArtifacts(inner)
+
+    def __getattr__(self, name):
+        raise AttributeError(f"{name} is not allowed: the harvester is read-only toward NotebookLM")
+
+
+class _ReadOnlyContext:
+    """Async context manager that opens the library client and yields the read-only wrapper."""
+
+    def __init__(self, ctx):
+        self._ctx = ctx
+
+    async def __aenter__(self) -> ReadOnlyClient:
+        return ReadOnlyClient(await self._ctx.__aenter__())
+
+    async def __aexit__(self, *exc):
+        return await self._ctx.__aexit__(*exc)
+
+
+def _client(profile_name: str) -> _ReadOnlyContext:
+    """Open a read-only library client on one account's session file."""
     from notebooklm import NotebookLMClient
 
     path = paths.storage_path(profile_name)
     if not path.exists():
         raise FileNotFoundError("no session file")
-    return NotebookLMClient.from_storage(path=str(path))
+    return _ReadOnlyContext(NotebookLMClient.from_storage(path=str(path)))
 
 
 def _run(coro):
@@ -340,9 +390,56 @@ def _cli(args: list[str], timeout: int) -> subprocess.CompletedProcess:
         cmd = [sys.executable, "-m", "nlh.adapter", *args]
     else:
         cmd = [sys.executable, "-m", "notebooklm", *args]
-    return subprocess.run(
-        cmd, env=_cli_env(), capture_output=True, text=True, timeout=timeout, encoding="utf-8"
+    return _run_group(cmd, _cli_env(), timeout)
+
+
+def _run_group(cmd: list[str], env: dict[str, str], timeout: int) -> subprocess.CompletedProcess:
+    """Run a command in its own process group and kill the whole group on timeout (FINDING-4).
+
+    A sign-in can start a browser as a grandchild; killing only the direct child would leave
+    that browser running and holding the profile lock.
+    """
+    kwargs: dict = {}
+    if sys.platform == "win32":
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200)
+    else:
+        kwargs["start_new_session"] = True
+    proc = subprocess.Popen(
+        cmd,
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        **kwargs,
     )
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _kill_group(proc)
+        proc.communicate()
+        raise
+    return subprocess.CompletedProcess(cmd, proc.returncode, out, err)
+
+
+def _kill_group(proc: subprocess.Popen) -> None:
+    """Kill a process and everything it started."""
+    import signal
+
+    try:
+        if sys.platform == "win32":
+            subprocess.run(
+                ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        else:
+            os.killpg(proc.pid, signal.SIGKILL)
+    except (OSError, ProcessLookupError):
+        proc.kill()
+    log.info("timed-out sign-in process group stopped")
 
 
 def check_session(profile_name: str) -> SessionStatus:
