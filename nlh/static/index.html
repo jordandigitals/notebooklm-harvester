@@ -34,6 +34,14 @@
   <symbol id="i-scan" viewBox="0 0 24 24"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3M7 12h10"/></symbol>
   <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></symbol>
   <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3v9M6.3 7a8 8 0 1 0 11.4 0"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 5v14l12-7z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
+  <symbol id="i-back15" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.5-5.8M4 4v4h4"/><path d="M10 10v5M13 10h2.5v2h-2v3H16"/></symbol>
+  <symbol id="i-fwd15" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.5-5.8M20 4v4h-4"/><path d="M8 10v5M11 10h2.5v2h-2v3H14"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M4 16V6a2 2 0 0 1 2-2h10"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
+  <symbol id="i-export" viewBox="0 0 24 24"><path d="M12 15V3m0 0-4 4m4-4 4 4M5 13v6a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-6"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V4M4 20h16M8 16v-5M12 16V8M16 16v-3"/></symbol>
 </svg>
 
 <div class="app">
@@ -55,6 +63,7 @@
     <nav class="tabs" aria-label="Views">
       <button class="tab" type="button" data-view="library" aria-current="page"><svg class="icon" aria-hidden="true"><use href="#i-library"/></svg><span class="label">Library</span></button>
       <button class="tab" type="button" data-view="history"><svg class="icon" aria-hidden="true"><use href="#i-history"/></svg><span class="label">History</span></button>
+      <button class="tab" type="button" data-view="stats"><svg class="icon" aria-hidden="true"><use href="#i-chart"/></svg><span class="label">Stats</span></button>
       <button class="tab" type="button" id="quit" aria-label="Quit the app"><svg class="icon" aria-hidden="true"><use href="#i-power"/></svg><span class="label">Quit</span></button>
     </nav>
   </header>
@@ -161,6 +170,7 @@
     </section>
 
     <section id="view-history" class="view is-hidden" aria-label="History"></section>
+    <section id="view-stats" class="view is-hidden" aria-label="Statistics"></section>
   </main>
 </div>
 

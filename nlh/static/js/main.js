@@ -8,7 +8,9 @@ import {
   openFocused, testHooks,
 } from "./library.js";
 import { acctState, renderAccountList, renderAccountCard, syncScopeButtons, toggleAdd, adjustAddPanel } from "./accounts.js";
-import { renderHistory } from "./history.js";
+import { renderHistory, hist, historyHooks } from "./history.js";
+import { renderStats } from "./stats.js";
+import { playerState } from "./player.js";
 import { encode, decode, hasState } from "./urlstate.js";
 
 const app = { view: "library", jobId: null, settings: null };
@@ -122,6 +124,7 @@ function noticeBanner(kind, text) {
 }
 
 function refreshChrome() {
+  hist.accountList = [...lib.accounts.values()].map((a) => ({ id: a.id, label: a.label }));
   renderAccountList();
   renderAccountCard();
   syncScopeButtons();
@@ -131,7 +134,8 @@ async function reload() {
   await loadState();
   await loadLibrary();
   refreshChrome();
-  if (app.view === "history") renderHistory();
+  if (app.view === "history") renderHistory({ keepPage: true });
+  if (app.view === "stats") renderStats();
 }
 
 function syncUrl(push = false) {
@@ -148,8 +152,12 @@ function switchView(view, push = true) {
   }
   show($("view-library"), view === "library");
   show($("view-history"), view === "history");
+  show($("view-stats"), view === "stats");
   if (view === "history") renderHistory();
-  document.title = view === "library" ? document.title.split(" · ")[0] : `${document.title.split(" · ")[0]} · History`;
+  if (view === "stats") renderStats();
+  const base = document.title.split(" · ")[0];
+  const names = { history: "History", stats: "Statistics" };
+  document.title = names[view] ? `${base} · ${names[view]}` : base;
   syncUrl(push);
   if (view === "library") apply({ keepScroll: true });
 }
@@ -186,6 +194,7 @@ function onKey(e) {
   if (Date.now() - lastG < 1000) {
     if (e.key === "l") { switchView("library"); lastG = 0; return; }
     if (e.key === "h") { switchView("history"); lastG = 0; return; }
+    if (e.key === "s") { switchView("stats"); lastG = 0; return; }
   }
   if (app.view !== "library") return;
   if (e.key === "j") { e.preventDefault(); moveFocus(1); }
@@ -204,6 +213,10 @@ async function init() {
   const st = await loadState();
   app.settings = await api("/api/settings");
   lib.views = app.settings.views || [];
+  hist.size = app.settings.history_page_size || 50;
+  hist.saveSize = (n) => api("/api/settings", { method: "POST", body: { history_page_size: n } }).catch(() => {});
+  hist.startJob = startJob;
+  hist.notebookBase = st.notebook_base || "";
   const theme = app.settings.theme;
   if (theme && theme !== "auto") document.documentElement.dataset.theme = theme;
   adjustAddPanel();
@@ -265,7 +278,7 @@ async function init() {
   document.addEventListener("nlh:reload", () => reload());
   window.addEventListener("popstate", () => { const v = decode(location.search); $("q").value = lib.query; $("sort").value = lib.sort; $("group").value = lib.group; switchView(v, false); apply(); renderFilters(); refreshChrome(); });
 
-  if (st.demo) window.__nlhTest = testHooks();
+  if (st.demo) window.__nlhTest = { ...testHooks(), history: historyHooks(), player: playerState };
   document.body.dataset.ready = "1";
 }
 
