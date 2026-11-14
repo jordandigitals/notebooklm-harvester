@@ -4,126 +4,168 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light dark">
 <title>{{APP_NAME}}</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/app.css">
+<script type="module" src="/static/js/main.js"></script>
 </head>
 <body>
-<header class="top">
-  <h1 class="brand">{{APP_NAME}}</h1>
-  <nav class="tabs" aria-label="Views">
-    <button class="tab is-active" data-view="harvest" type="button">Harvest</button>
-    <button class="tab" data-view="history" type="button">History</button>
-    <button id="quit" class="tab" type="button">Quit</button>
-  </nav>
-</header>
+<svg class="is-hidden" aria-hidden="true">
+  <symbol id="i-logo" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="5"/><path d="M8 15V9M12 17V7M16 14v-4"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17h.01"/></symbol>
+  <symbol id="i-library" viewBox="0 0 24 24"><path d="M4 5h4v14H4zM10 5h4v14h-4zM16 6l3.5-1 2 13-3.5 1z"/></symbol>
+  <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></symbol>
+  <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 5h16l-6 8v5l-4 2v-7z"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="m6 15 6-6 6 6"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 19h14"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-bookmark" viewBox="0 0 24 24"><path d="M6 4h12v16l-6-4-6 4z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3 2 20h20zM12 10v4M12 17h.01"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+  <symbol id="i-scan" viewBox="0 0 24 24"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3M7 12h10"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></symbol>
+  <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3v9M6.3 7a8 8 0 1 0 11.4 0"/></symbol>
+</svg>
 
-<div id="tools-warning" class="banner is-hidden" role="alert"></div>
-<div id="portable-warning" class="banner banner-warn is-hidden" role="alert">
-  <p><strong>Portable mode.</strong> This copy keeps its data, including your Google sign-ins, in the "data" folder beside the app. Do not keep it on a shared drive or a drive you might lose, and do not hand that folder to anyone.</p>
-  <button id="portable-ok" class="btn btn-small" type="button">I understand</button>
-</div>
-
-<main class="layout">
-  <aside class="panel accounts-panel" aria-label="Accounts">
-    <div class="panel-head">
-      <h2>Accounts</h2>
-      <button id="add-toggle" class="btn btn-small" type="button">Add account</button>
+<div class="app">
+  <header class="top">
+    <h1 class="brand"><svg class="icon logo" aria-hidden="true"><use href="#i-logo"/></svg>{{APP_NAME}}</h1>
+    <div class="searchbox" role="search">
+      <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+      <label for="q" class="sr-only">Search overviews</label>
+      <input id="q" type="search" autocomplete="off" spellcheck="false"
+             placeholder="Search titles, notebooks, accounts, files"
+             aria-describedby="q-help-line">
+      <span id="q-help-line" class="sr-only">Searches titles, notebook names, accounts, file names and dates, not what is said in the audio. Press slash to focus.</span>
+      <span class="search-tools">
+        <button id="q-clear" class="btn btn-ghost btn-icon btn-sm is-hidden" type="button" aria-label="Clear search"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+        <button id="q-help" class="btn btn-ghost btn-icon btn-sm" type="button" aria-label="Search help" aria-haspopup="dialog"><svg class="icon" aria-hidden="true"><use href="#i-help"/></svg></button>
+        <span class="kbd" aria-hidden="true">/</span>
+      </span>
     </div>
-    <ul id="account-list" class="account-list"></ul>
-    <section id="add-panel" class="add-panel is-hidden" aria-label="Add an account">
-      <div id="add-chrome">
-        <h3 id="chrome-head">From a Chrome profile</h3>
-        <p id="chrome-hint" class="hint">Uses a Google account already signed in to Chrome on this computer.</p>
-        <ul id="chrome-list" class="chrome-list"></ul>
-      </div>
-      <div id="add-signin">
-        <h3 id="signin-head">Sign in to Google</h3>
-        <p id="signin-hint" class="hint">Opens a blank Chrome window (it looks like a guest profile; that is expected) where you sign in once to any Google account. The app remembers it.</p>
-        <div id="signin-row" class="row">
-          <input id="signin-label" class="input" type="text" placeholder="Name for this account (optional)">
-          <button id="signin-add" class="btn" type="button">Sign in</button>
+    <nav class="tabs" aria-label="Views">
+      <button class="tab" type="button" data-view="library" aria-current="page"><svg class="icon" aria-hidden="true"><use href="#i-library"/></svg><span class="label">Library</span></button>
+      <button class="tab" type="button" data-view="history"><svg class="icon" aria-hidden="true"><use href="#i-history"/></svg><span class="label">History</span></button>
+      <button class="tab" type="button" id="quit" aria-label="Quit the app"><svg class="icon" aria-hidden="true"><use href="#i-power"/></svg><span class="label">Quit</span></button>
+    </nav>
+  </header>
+
+  <div id="banners" class="banners" aria-live="polite"></div>
+
+  <main class="views">
+    <section id="view-library" class="view" aria-label="Library">
+      <div class="lib">
+        <aside id="sidebar" class="sidebar" aria-label="Accounts and filters">
+          <div class="side-section">
+            <div class="side-head">
+              <h2>Accounts</h2>
+              <div class="row">
+                <button id="add-toggle" class="btn btn-sm" type="button" aria-expanded="false"><svg class="icon icon-sm" aria-hidden="true"><use href="#i-plus"/></svg>Add account</button>
+                <button class="btn btn-ghost btn-icon btn-sm close-sidebar" type="button" aria-label="Close panel"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+              </div>
+            </div>
+            <ul id="acct-list" class="acct-list"></ul>
+            <div id="add-panel" class="add-panel is-hidden">
+              <div id="add-chrome" class="add-block">
+                <h3 id="chrome-head">From a Chrome profile</h3>
+                <p id="chrome-hint" class="hint">Uses a Google account already signed in to Chrome on this computer.</p>
+                <div id="chrome-list"></div>
+              </div>
+              <div id="add-signin" class="add-block">
+                <h3 id="signin-head">Sign in to Google</h3>
+                <p id="signin-hint" class="hint">Opens a blank Chrome window (it looks like a guest profile; that is expected) where you sign in once to any Google account. The app remembers it.</p>
+                <div id="signin-row" class="row">
+                  <label for="signin-label" class="sr-only">Name for this account</label>
+                  <input id="signin-label" class="input grow" type="text" placeholder="Name for this account (optional)">
+                  <button id="signin-add" class="btn" type="button">Sign in</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="side-section">
+            <div class="side-head">
+              <h2>Filters</h2>
+              <button id="filters-clear" class="btn btn-ghost btn-sm" type="button">Clear all</button>
+            </div>
+            <div id="filters" class="filters"></div>
+          </div>
+        </aside>
+
+        <div class="content">
+          <div class="toolbar">
+            <button class="btn btn-sm sidebar-toggle" type="button" id="sidebar-open" aria-controls="sidebar"><svg class="icon icon-sm" aria-hidden="true"><use href="#i-filter"/></svg>Accounts and filters</button>
+            <div class="seg" role="group" aria-label="Scope">
+              <button type="button" data-scope="account" aria-pressed="false">This account</button>
+              <button type="button" data-scope="all" aria-pressed="true">All accounts</button>
+            </div>
+            <label class="lbl-inline">Sort
+              <select id="sort" class="select">
+                <option value="newest">Newest</option>
+                <option value="oldest">Oldest</option>
+                <option value="title_asc">Title A to Z</option>
+                <option value="title_desc">Title Z to A</option>
+                <option value="notebook">Notebook</option>
+                <option value="status">Status</option>
+                <option value="saved">Saved date</option>
+                <option value="size">Size</option>
+                <option value="length">Length</option>
+              </select>
+            </label>
+            <label class="lbl-inline">Group
+              <select id="group" class="select">
+                <option value="none">None</option>
+                <option value="notebook">Notebook</option>
+                <option value="account">Account</option>
+                <option value="month">Month created</option>
+                <option value="status">Status</option>
+              </select>
+            </label>
+            <span class="spacer"></span>
+            <button id="views-btn" class="btn btn-sm" type="button" aria-haspopup="menu"><svg class="icon icon-sm" aria-hidden="true"><use href="#i-bookmark"/></svg>Views</button>
+          </div>
+          <div id="account-card"></div>
+          <div id="job-box"></div>
+          <div id="chips" class="chips" aria-label="Active filters"></div>
+          <div class="resultbar">
+            <span id="result-count" role="status" aria-live="polite"></span>
+            <span class="spacer"></span>
+            <button id="sel-visible" class="btn btn-ghost btn-sm" type="button">Select all in view</button>
+            <button id="sel-new" class="btn btn-ghost btn-sm" type="button">Select new</button>
+            <button id="sel-invert" class="btn btn-ghost btn-sm" type="button">Invert</button>
+            <button id="group-toggle" class="btn btn-ghost btn-sm is-hidden" type="button">Collapse all</button>
+          </div>
+          <div class="listwrap">
+            <div id="vlist" class="vlist" tabindex="0" role="list" aria-label="Audio overviews">
+              <div id="vspacer" class="vspacer"></div>
+            </div>
+            <div id="sticky-group"></div>
+            <button id="backtop" class="btn btn-sm backtop is-hidden" type="button"><svg class="icon icon-sm" aria-hidden="true"><use href="#i-up"/></svg>Back to top</button>
+          </div>
+          <div id="actionbar" class="actionbar is-hidden" role="region" aria-label="Selection">
+            <span id="sel-summary" class="sel" aria-live="polite"></span>
+            <span class="spacer"></span>
+            <button id="sel-clear" class="btn btn-ghost btn-sm" type="button">Clear</button>
+            <button id="sel-harvest" class="btn btn-primary" type="button"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>Harvest</button>
+          </div>
         </div>
       </div>
     </section>
-  </aside>
 
-  <section id="view-harvest" class="panel main-panel" aria-label="Notebooks">
-    <!-- Job progress sits outside the account detail so a first sign-in can show its result. -->
-    <div id="job-box" class="job is-hidden" aria-live="polite">
-      <div class="job-head"><strong id="job-title"></strong><span id="job-state" class="pill"></span></div>
-      <div id="job-overall" class="bar is-hidden" role="progressbar" aria-label="Overall progress"><span class="bar-fill"></span></div>
-      <p id="job-message" class="job-message"></p>
-      <ul id="job-items" class="job-items"></ul>
-    </div>
-
-    <div id="no-account" class="empty">Add an account to begin.</div>
-    <div id="account-detail" class="is-hidden">
-      <div class="detail-head">
-        <div class="label-edit">
-          <input id="acct-label" class="input input-title" type="text" aria-label="Account name">
-          <span id="acct-email" class="muted"></span>
-        </div>
-        <span id="acct-status" class="pill"></span>
-      </div>
-      <div class="actions">
-        <button id="btn-check" class="btn btn-quiet" type="button">Check</button>
-        <button id="btn-signin" class="btn btn-quiet is-hidden" type="button">Sign in again</button>
-      </div>
-
-      <div class="folder-row">
-        <span class="folder-label">Save to</span>
-        <code id="out-dir" class="folder-path">No folder chosen</code>
-        <p id="out-warning" class="hint hint-warn is-hidden">This folder path is long for Windows. Long titles will be shortened, and a folder that is too deep is refused. A shorter folder, such as C:\NLH, is safer.</p>
-        <button id="btn-choose" class="btn btn-quiet" type="button">Choose folder</button>
-        <button id="btn-open-out" class="btn btn-quiet is-hidden" type="button">Open folder</button>
-        <button id="btn-scan" class="btn btn-quiet is-hidden" type="button" title="Find MP3s this app saved before (for example on another computer)">Scan folder</button>
-      </div>
-
-      <div class="actions harvest-actions">
-        <button id="btn-refresh" class="btn" type="button">Refresh notebooks</button>
-        <button id="btn-harvest-new" class="btn btn-primary" type="button">Harvest all new</button>
-        <button id="btn-harvest-sel" class="btn" type="button">Harvest selected</button>
-      </div>
-
-      <div id="notebooks" class="notebooks"></div>
-    </div>
-  </section>
-
-  <section id="view-history" class="panel main-panel is-hidden" aria-label="History">
-    <div class="panel-head">
-      <h2>Saved overviews</h2>
-      <select id="history-account" class="input input-narrow" aria-label="Filter by account"></select>
-    </div>
-    <div id="history-list"></div>
-  </section>
-</main>
-
-<div id="picker" class="modal is-hidden" role="dialog" aria-modal="true" aria-labelledby="picker-title">
-  <div class="modal-box">
-    <h2 id="picker-title">Choose a folder</h2>
-    <div class="row">
-      <input id="picker-path" class="input" type="text" aria-label="Folder path">
-      <button id="picker-go" class="btn btn-quiet" type="button">Go</button>
-    </div>
-    <div class="row picker-nav">
-      <button id="picker-up" class="btn btn-quiet btn-small" type="button">Up one level</button>
-      <button id="picker-home" class="btn btn-quiet btn-small" type="button">Home</button>
-      <button id="picker-new" class="btn btn-quiet btn-small" type="button">New folder</button>
-    </div>
-    <div id="picker-new-row" class="row is-hidden">
-      <input id="picker-new-name" class="input" type="text" placeholder="New folder name" aria-label="New folder name">
-      <button id="picker-new-ok" class="btn btn-small" type="button">Create</button>
-    </div>
-    <ul id="picker-list" class="picker-list"></ul>
-    <p id="picker-error" class="error"></p>
-    <div class="row modal-actions">
-      <button id="picker-cancel" class="btn btn-quiet" type="button">Cancel</button>
-      <button id="picker-ok" class="btn btn-primary" type="button">Use this folder</button>
-    </div>
-  </div>
+    <section id="view-history" class="view is-hidden" aria-label="History"></section>
+  </main>
 </div>
 
-<footer class="foot">Version {{VERSION}}. Runs only on this computer. Read-only toward NotebookLM.</footer>
-<script src="/static/app.js"></script>
+<div id="toasts" class="toasts" role="status" aria-live="polite"></div>
+<div id="popover-root"></div>
+<dialog id="dlg"></dialog>
 </body>
 </html>

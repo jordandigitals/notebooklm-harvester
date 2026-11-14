@@ -11,20 +11,23 @@ import hmac
 import json
 import os
 import queue
+import re
 import secrets
 import socket
 import string
 import subprocess
 import sys
 import threading
+import time
 import uuid
 import webbrowser
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from flask import Flask, abort, jsonify, request, send_from_directory
+from flask import Flask, abort, jsonify, redirect, request, send_from_directory
 
-from nlh import APP_NAME, __version__, accounts, adapter, harvest, media, naming, paths
+from nlh import APP_NAME, __version__, accounts, adapter, demo, harvest, media, naming, paths
+from nlh import settings as app_settings
 from nlh.ledger import Ledger
 from nlh.log import get_logger
 
@@ -58,6 +61,9 @@ class Job:
     pct: float | None = None  # overall fraction for harvests
     total: int = 0
     current: str | None = None
+    cancel: threading.Event = field(default_factory=threading.Event)
+    started_at: float | None = None
+    finished_at: float | None = None
 
     def view(self) -> dict:
         """JSON view for the page."""
@@ -73,6 +79,10 @@ class Job:
             "pct": self.pct,
             "total": self.total,
             "current": self.current,
+            "cancelling": self.cancel.is_set() and self.state in ("queued", "running"),
+            "elapsed_s": round((self.finished_at or time.time()) - self.started_at, 1)
+            if self.started_at
+            else 0,
         }
 
 
@@ -100,7 +110,11 @@ class Worker:
     def _loop(self):
         while True:
             job, fn = self.q.get()
+            if job.cancel.is_set():
+                job.state, job.message = "cancelled", "Cancelled before it started."
+                continue
             job.state = "running"
+            job.started_at = time.time()
             try:
                 fn(job)
                 if job.state == "running":
@@ -110,6 +124,8 @@ class Worker:
             except Exception as exc:  # last resort: plain message, detail in the log
                 log.exception("job %s failed: %s", job.kind, type(exc).__name__)
                 job.state, job.message = "failed", "Something went wrong. Details are in the log."
+            finally:
+                job.finished_at = time.time()
 
 
 # ---------------------------------------------------------------- app
@@ -123,8 +139,11 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
     library: dict[int, list] = {}  # account id -> [(Notebook, [AudioOverview])]
     cached_at: dict[int, str] = {}  # account id -> when a cached listing was read
 
+    cookie_name = "nlh_key"
+
     @app.before_request
     def guard():
+        """Host check, then the page key from the URL (first open), a header or the cookie."""
         host = (request.host or "").split(":")[0]
         if host not in ("127.0.0.1", "localhost"):
             abort(403)
@@ -132,11 +151,28 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
             return None
         if request.path == "/favicon.ico":
             return "", 204
-        given = request.args.get("t") or request.headers.get("X-NLH-Token") or ""
-        if not hmac.compare_digest(given, token):
+        url_key = request.args.get("t") or ""
+        header_key = request.headers.get("X-NLH-Token") or ""
+        cookie_key = request.cookies.get(cookie_name) or ""
+        given = url_key or header_key or cookie_key
+        if not given or not hmac.compare_digest(given, token):
             if request.path.startswith("/api/"):
                 return jsonify(error="This page's key is out of date. Reopen the app's page."), 403
             return STALE_PAGE.replace("{{APP_NAME}}", APP_NAME), 403
+        if url_key and request.method == "GET" and request.path == "/":
+            # Move the key out of the address bar into an HttpOnly cookie, keep any view state.
+            rest = request.args.to_dict(flat=True)
+            rest.pop("t", None)
+            query = "&".join(f"{k}={v}" for k, v in rest.items())
+            resp = redirect("/" + (f"?{query}" if query else ""), code=302)
+            resp.set_cookie(
+                cookie_name, token, max_age=30 * 86400, httponly=True, samesite="Strict", path="/"
+            )
+            return resp
+        if request.method not in ("GET", "HEAD") and not header_key:
+            # Cookie-only writes must also carry the page's own header (cross-site forms cannot).
+            if request.headers.get("X-NLH-Req") != "1":
+                return jsonify(error="Refused: missing request header."), 403
         return None
 
     @app.after_request
@@ -191,6 +227,7 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
         current = [worker.jobs[j].view() for j in worker.order[-20:]]
         portable = paths.portable_home() is not None and not os.environ.get("NLH_HOME")
         return jsonify(
+            demo=demo.enabled(),
             interactive=adapter.interactive_available(),
             windows=paths.is_windows(),
             portable=portable,
@@ -374,49 +411,10 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
             chosen = [ov for ov in all_ovs if ov.artifact_id in wanted | redo]
         if not chosen:
             return jsonify(error="Nothing to harvest."), 400
-
-        def run(job):
-            for ov in chosen:
-                job.items[ov.artifact_id] = {
-                    "title": ov.title,
-                    "step": "Waiting",
-                    "outcome": None,
-                    "pct": 0.0,
-                }
-            job.total = len(chosen)
-
-            def on_item(i, n, ov, msg, pct=None):
-                item = job.items[ov.artifact_id]
-                item["step"], item["pct"] = msg, pct
-                done = sum((it["pct"] or 0) for it in job.items.values())
-                job.pct = min(1.0, done / max(1, n))
-                job.current = ov.artifact_id
-                if not msg.startswith(("Downloading ", "Converting to MP3 ")):
-                    job.lines.append(f"[{i + 1}/{n}] {ov.title}: {msg}")
-
-            def download(profile, ov, dest):
-                return accounts.with_session(led, acct, lambda: adapter.download_overview(profile, ov, dest))
-
-            results = harvest.harvest_many(
-                led,
-                led.account(acct.id),
-                chosen,
-                Path(acct.output_dir),
-                redownload_ids=redo,
-                downloader=download,
-                on_item=on_item,
-            )
-            for r in results:
-                job.items[r.artifact_id].update(outcome=r.outcome, step=r.message, pct=1.0)
-            job.pct, job.current = 1.0, None
-            saved = sum(r.outcome == "saved" for r in results)
-            failed = sum(r.outcome == "failed" for r in results)
-            job.message = f"Saved {saved}, skipped {len(results) - saved - failed}, failed {failed}."
-            if failed:
-                job.state = "failed"
-
-        title = f"Harvesting {len(chosen)} for {acct.label}"
-        return jsonify(worker.submit("harvest", title, run, acct.id).view())
+        job, err = start_harvest([(account_id, ov.artifact_id) for ov in chosen], redo)
+        if err:
+            return jsonify(error=err), 400
+        return jsonify(job.view())
 
     @app.post("/api/accounts/<int:account_id>/scan")
     def scan(account_id):
@@ -443,6 +441,185 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
             )
 
         return jsonify(worker.submit("scan", f"Scanning folder for {acct.label}", run, acct.id).view())
+
+    # ------------------------------------------------------------ whole library (U1)
+
+    def ensure_listing(account_id: int) -> bool:
+        """Load an account's cached listing into memory; False if it was never refreshed."""
+        if account_id in library:
+            return True
+        saved = led.load_listing(account_id)
+        if not saved:
+            return False
+        library[account_id] = _load_listing(saved[0])
+        cached_at[account_id] = saved[1]
+        return True
+
+    @app.get("/api/library")
+    def whole_library():
+        """One flat row per overview across all accounts (client-side search and filters)."""
+        accts = led.accounts()
+        harvested = {h.artifact_id: h for h in led.harvests()}
+        attempts = led.last_attempts()
+        rows, never = [], []
+        for a in accts:
+            if not ensure_listing(a.id):
+                never.append(a.id)
+                continue
+            for nb, ovs in library[a.id]:
+                multi = len(ovs) > 1
+                for ov in ovs:
+                    h = harvested.get(ov.artifact_id)
+                    status = _row_status(ov, h, a, attempts.get(ov.artifact_id))
+                    rows.append(
+                        {
+                            "account_id": a.id,
+                            "notebook_id": nb.id,
+                            "notebook": nb.title,
+                            "artifact_id": ov.artifact_id,
+                            "title": ov.title,
+                            "created_at": ov.created_at,
+                            "status": status,
+                            "multi": multi,
+                            "harvest_id": h.id if h else None,
+                            "saved_path": h.saved_path if h else None,
+                            "file_name": Path(h.saved_path).name if h else None,
+                            "saved_at": h.saved_at if h else None,
+                            "size_bytes": h.size_bytes if h else None,
+                            "duration_s": h.duration_s if h else None,
+                            "origin": h.origin if h else None,
+                            "clash": bool(h and _CLASH.search(Path(h.saved_path).stem)),
+                            "last_error": (attempts.get(ov.artifact_id) or {}).get("message")
+                            if status == "failed"
+                            else None,
+                        }
+                    )
+        return jsonify(
+            accounts=[account_view(a) for a in accts],
+            never_refreshed=never,
+            listed_at={str(k): v for k, v in cached_at.items()},
+            rows=rows,
+        )
+
+    def start_harvest(items: list[tuple[int, str]], redo: set[str]):
+        """One job that harvests the given (account id, artifact id) pairs, account by account."""
+        by_account: dict[int, list] = {}
+        problems = []
+        for account_id, artifact_id in items:
+            acct = led.account(account_id)
+            if not acct or not ensure_listing(account_id):
+                problems.append("an account was not found or never refreshed")
+                continue
+            if not acct.output_dir or not Path(acct.output_dir).is_dir():
+                problems.append(f"{acct.label} has no reachable output folder")
+                continue
+            ov = next(
+                (o for _nb, ovs in library[account_id] for o in ovs if o.artifact_id == artifact_id), None
+            )
+            if ov:
+                by_account.setdefault(account_id, []).append(ov)
+        chosen = [ov for ovs in by_account.values() for ov in ovs]
+        if not chosen:
+            msg = "Nothing to harvest." + (f" ({'; '.join(sorted(set(problems)))})" if problems else "")
+            return None, msg
+
+        def run(job):
+            for ov in chosen:
+                job.items[ov.artifact_id] = {
+                    "title": ov.title,
+                    "step": "Waiting",
+                    "outcome": None,
+                    "pct": 0.0,
+                }
+            job.total = len(chosen)
+            done_before = 0
+            all_results = []
+            for account_id, ovs in by_account.items():
+                acct = led.account(account_id)
+
+                def on_item(i, n, ov, msg, pct=None, base=done_before):
+                    item = job.items[ov.artifact_id]
+                    item["step"], item["pct"] = msg, pct
+                    total_pct = sum((it["pct"] or 0) for it in job.items.values())
+                    job.pct = min(1.0, total_pct / max(1, job.total))
+                    job.current = ov.artifact_id
+                    if not msg.startswith(("Downloading ", "Converting to MP3 ")):
+                        job.lines.append(f"[{base + i + 1}/{job.total}] {ov.title}: {msg}")
+
+                def download(profile, ov, dest, acct=acct):
+                    return accounts.with_session(
+                        led, acct, lambda: adapter.download_overview(profile, ov, dest)
+                    )
+
+                results = harvest.harvest_many(
+                    led,
+                    acct,
+                    ovs,
+                    Path(acct.output_dir),
+                    redownload_ids=redo,
+                    downloader=download,
+                    on_item=on_item,
+                    cancel=job.cancel,
+                )
+                for r in results:
+                    job.items[r.artifact_id].update(outcome=r.outcome, step=r.message, pct=1.0)
+                all_results += results
+                done_before += len(ovs)
+            job.pct, job.current = 1.0, None
+            counts = {k: sum(r.outcome == k for r in all_results) for k in ("saved", "failed", "cancelled")}
+            skipped = len(all_results) - sum(counts.values())
+            job.message = (
+                f"Saved {counts['saved']}, skipped {skipped}, failed {counts['failed']}"
+                + (f", cancelled {counts['cancelled']}" if counts["cancelled"] else "")
+                + "."
+            )
+            if job.cancel.is_set():
+                job.state = "cancelled"
+            elif counts["failed"]:
+                job.state = "failed"
+
+        account_ids = list(by_account)
+        title = f"Harvesting {len(chosen)}" + (
+            f" for {led.account(account_ids[0]).label}" if len(account_ids) == 1 else " across accounts"
+        )
+        return worker.submit("harvest", title, run, account_ids[0] if len(account_ids) == 1 else None), None
+
+    @app.post("/api/harvest")
+    def harvest_items():
+        """Harvest exactly the listed items (the page sends its filtered selection)."""
+        data = body()
+        items = []
+        for it in data.get("items") or []:
+            try:
+                items.append((int(it["account_id"]), str(it["artifact_id"])))
+            except (KeyError, TypeError, ValueError):
+                return jsonify(error="An item in the request is not valid."), 400
+        job, err = start_harvest(items, {str(a) for a in data.get("redownload") or []})
+        if err:
+            return jsonify(error=err), 400
+        return jsonify(job.view())
+
+    @app.post("/api/jobs/<job_id>/cancel")
+    def cancel_job(job_id):
+        """Ask a job to stop after its current safe step (FLAG-P2)."""
+        j = worker.jobs.get(job_id)
+        if not j:
+            abort(404)
+        j.cancel.set()
+        return jsonify(j.view())
+
+    # ------------------------------------------------------------ settings and views
+
+    @app.get("/api/settings")
+    def get_settings():
+        return jsonify(app_settings.load())
+
+    @app.post("/api/settings")
+    def put_settings():
+        try:
+            return jsonify(app_settings.save(body()))
+        except app_settings.SettingsError as exc:
+            return jsonify(error=str(exc)), 400
 
     # ------------------------------------------------------------ history and folders
 
@@ -528,6 +705,20 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
     app.config["worker"] = worker
     app.config["library"] = library
     return app
+
+
+_CLASH = re.compile(r" \(\d+\)$")
+
+
+def _row_status(ov, h, acct, attempt: dict | None) -> str:
+    """Status of one overview for the library view (U1): saved file, gaps, failures."""
+    if not ov.completed:
+        return harvest.IN_PROGRESS
+    if h is None:
+        return "failed" if attempt and attempt.get("outcome") == "failed" else harvest.NEW
+    if Path(h.saved_path).exists():
+        return harvest.SAVED
+    return harvest.MISSING if harvest.folder_reachable(h.saved_path, acct.output_dir) else harvest.UNREACHABLE
 
 
 def _dump_listing(lib) -> str:
@@ -634,6 +825,8 @@ def serve(open_browser: bool = True) -> int:
     """Start the local server and open the page in the default browser."""
     from werkzeug.serving import make_server
 
+    if demo.enabled():
+        demo.prepare()  # synthetic data in a temporary app home; never the real one
     lock = paths.AppLock()
     if not lock.acquire():
         # Another process owns this app home (FINDING-2): show its page instead.

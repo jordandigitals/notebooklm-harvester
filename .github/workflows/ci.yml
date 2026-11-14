@@ -53,3 +53,26 @@ jobs:
           ruff format --check .
       - name: Tests
         run: pytest -q
+
+  ui:
+    # Browser tests in demo mode (synthetic data, no network beyond the browser download):
+    # filter results against an independent oracle, selection and harvest, URL state,
+    # keyboard, performance budgets and axe-core accessibility checks.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install dependencies and Chromium
+        run: |
+          python -m pip install -r requirements-dev.txt
+          python -m playwright install --with-deps chromium
+      - name: UI tests
+        env:
+          NLH_UI_TESTS: "1"
+          NLH_UI_CHANNEL: chromium
+          CI: "1"
+        run: pytest -q -s tests/ui

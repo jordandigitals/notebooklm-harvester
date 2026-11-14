@@ -381,7 +381,9 @@ def test_cli_timeout_kills_the_whole_group(tmp_path):
         "time.sleep(60)"
     )
     with pytest.raises(subprocess.TimeoutExpired):
-        adapter._run_group([sys.executable, "-c", script], dict(__import__("os").environ), timeout=3)
+        # Generous timeout: on a heavily loaded machine starting two Pythons can take seconds.
+        adapter._run_group([sys.executable, "-c", script], dict(__import__("os").environ), timeout=15)
+    assert marker.exists(), "the grandchild never started, so the test proves nothing"
     child = int(marker.read_text())
     time.sleep(1)
     alive = True

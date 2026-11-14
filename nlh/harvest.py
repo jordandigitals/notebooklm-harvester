@@ -39,9 +39,15 @@ class ItemResult:
 
     artifact_id: str
     title: str
-    outcome: str  # saved | skipped | failed
+    outcome: str  # saved | skipped | failed | cancelled
     message: str
     saved_path: str | None = None
+    download_s: float | None = None
+    total_s: float | None = None
+
+
+class Cancelled(Exception):
+    """The user cancelled; raised only between safe steps."""
 
 
 def folder_reachable(saved_path: str, output_dir: str | None) -> bool:
@@ -126,8 +132,23 @@ def harvest_one(
     redownload: bool = False,
     downloader: Callable[[str, AudioOverview, Path], Path] | None = None,
     on_step: Callable[..., None] | None = None,
+    cancel: threading.Event | None = None,
 ) -> ItemResult:
-    """Harvest a single overview into out_dir. Skips anything already saved."""
+    """Harvest a single overview into out_dir. Skips anything already saved.
+
+    cancel is checked between safe steps (after the download, after converting, before
+    saving). A cancelled item leaves no .part file and no ledger row (FLAG-P2: a download
+    already running finishes first; the library call cannot be interrupted).
+    """
+    import time
+
+    started = time.monotonic()
+    download_s = None
+
+    def check_cancel():
+        if cancel is not None and cancel.is_set():
+            raise Cancelled()
+
     step = on_step or (lambda _msg, _pct=None: None)
     download = downloader or adapter.download_overview
 
@@ -172,11 +193,15 @@ def harvest_one(
 
         watcher = threading.Thread(target=watch, daemon=True)
         watcher.start()
+        check_cancel()
+        t_dl = time.monotonic()
         try:
             src = download(account.profile_name, ov, work / "source.bin")
         finally:
             stop.set()
             watcher.join(timeout=2)
+        download_s = time.monotonic() - t_dl
+        check_cancel()
         step("Checking the audio", 0.3)
         source = media.probe(src)
         log.info(
@@ -199,7 +224,7 @@ def harvest_one(
         )
         checked = media.verify_mp3(mp3, source.duration, tags)
         digest = media.sha256(mp3)
-
+        check_cancel()
         step("Saving", 0.97)
         final = naming.unique_path(naming.notebook_folder(out_dir, ov.notebook_title), ov.title)
         part = final.with_name(final.name + ".part")
@@ -224,7 +249,12 @@ def harvest_one(
             placed = True
         part = None
         log.info("saved artifact %s to %s", ov.artifact_id, final)
-        return ItemResult(ov.artifact_id, ov.title, "saved", "Saved.", str(final))
+        return ItemResult(
+            ov.artifact_id, ov.title, "saved", "Saved.", str(final), download_s, time.monotonic() - started
+        )
+    except Cancelled:
+        log.info("artifact %s cancelled before saving", ov.artifact_id)
+        return ItemResult(ov.artifact_id, ov.title, "cancelled", "Cancelled. Nothing was saved.")
     except AdapterError as exc:
         return ItemResult(ov.artifact_id, ov.title, "failed", exc.message)
     except media.MediaError as exc:
@@ -259,11 +289,22 @@ def harvest_many(
     redownload_ids: set[str] | None = None,
     downloader=None,
     on_item: Callable[..., None] | None = None,
+    cancel: threading.Event | None = None,
 ) -> list[ItemResult]:
-    """Harvest several overviews one at a time, holding the global work lock."""
+    """Harvest several overviews one at a time, holding the global work lock.
+
+    Each saved, failed or cancelled item is logged in the attempts table. After a cancel,
+    the remaining items are reported as cancelled without being started.
+    """
     results = []
     with WORK_LOCK:
         for i, ov in enumerate(overviews):
+            if cancel is not None and cancel.is_set():
+                res = ItemResult(ov.artifact_id, ov.title, "cancelled", "Cancelled before it started.")
+                if on_item:
+                    on_item(i, len(overviews), ov, res.message, 1.0)
+                results.append(res)
+                continue
 
             def step(msg, pct=None, i=i, ov=ov):
                 if on_item:
@@ -277,7 +318,12 @@ def harvest_many(
                 redownload=ov.artifact_id in (redownload_ids or set()),
                 downloader=downloader,
                 on_step=step,
+                cancel=cancel,
             )
+            if res.outcome in ("saved", "failed", "cancelled"):
+                ledger.record_attempt(
+                    account.id, ov.artifact_id, res.outcome, res.message, res.download_s, res.total_s
+                )
             step(res.message, 1.0)
             results.append(res)
     return results
@@ -343,6 +389,7 @@ def scan_folder(
                 size_bytes=path.stat().st_size,
                 duration_s=info.duration,
                 sha256=media.sha256(path),
+                origin="relinked" if row else "scan",
             )
         if row:
             result.relinked += 1

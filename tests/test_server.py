@@ -35,8 +35,25 @@ def test_token_required(client):
     assert c.get("/").status_code == 403
     assert c.get("/api/state").status_code == 403
     assert c.get("/api/state", headers={"X-NLH-Token": "wrong"}).status_code == 403
-    assert c.get(f"/?t={TOKEN}").status_code == 200
     assert c.get("/api/state", headers=H).status_code == 200
+
+
+def test_key_moves_from_url_to_httponly_cookie(client):
+    _, c = client
+    r = c.get(f"/?t={TOKEN}&view=history")
+    assert r.status_code == 302 and r.headers["Location"] == "/?view=history"
+    cookie = r.headers["Set-Cookie"]
+    assert "HttpOnly" in cookie and "SameSite=Strict" in cookie and TOKEN in cookie
+    page = c.get("/?view=history")  # the test client keeps the cookie
+    assert page.status_code == 200 and TOKEN.encode() not in page.data
+    assert c.get("/api/state").status_code == 200  # cookie works for API reads
+
+
+def test_cookie_only_write_needs_page_header(client, ledger):
+    _, c = client
+    c.get(f"/?t={TOKEN}")
+    assert c.post("/api/settings", json={"theme": "dark"}).status_code == 403
+    assert c.post("/api/settings", json={"theme": "dark"}, headers={"X-NLH-Req": "1"}).status_code == 200
 
 
 def test_foreign_host_refused(client):
@@ -46,7 +63,8 @@ def test_foreign_host_refused(client):
 
 def test_page_has_app_name_and_csp(client):
     _, c = client
-    r = c.get(f"/?t={TOKEN}")
+    c.get(f"/?t={TOKEN}")
+    r = c.get("/")
     assert b"NotebookLM Harvester" in r.data and b"{{APP_NAME}}" not in r.data
     assert "default-src 'self'" in r.headers["Content-Security-Policy"]
 
