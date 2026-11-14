@@ -163,7 +163,7 @@ def test_login_failure_messages_are_plain(text, expected):
 def test_cli_uses_windows_wrapper_only_on_windows(monkeypatch):
     """On Windows sign-in commands run through nlh.adapter so the cookie fix applies."""
     captured = {}
-    monkeypatch.setattr(adapter.subprocess, "run", lambda cmd, **kw: captured.setdefault("cmd", cmd))
+    monkeypatch.setattr(adapter, "_run_group", lambda cmd, env, timeout: captured.setdefault("cmd", cmd))
     monkeypatch.setattr(adapter.sys, "platform", "win32")
     adapter._cli(["auth", "check"], 5)
     assert captured["cmd"][1:4] == ["-m", "nlh.adapter", "auth"]
@@ -327,3 +327,74 @@ def test_tracebacks_in_the_log_are_redacted():
     text = RedactingFormatter("%(levelname)s %(message)s").format(record)
     assert "AbCdEfGhIjKl" not in text and "__Secure-1PSID" not in text
     assert "job failed" in text and "Traceback" in text
+
+
+def test_read_only_client_exposes_only_three_calls():
+    """FINDING-5: the wrapped client has list, list_audio, download_audio and nothing else."""
+    from types import SimpleNamespace
+
+    import pytest
+
+    calls = []
+    nb = SimpleNamespace(
+        list=lambda: calls.append("list"),
+        delete=lambda *a: calls.append("delete"),
+        create=lambda *a: calls.append("create"),
+    )
+    art = SimpleNamespace(
+        list_audio=lambda *a: calls.append("la"),
+        download_audio=lambda *a: calls.append("dl"),
+        delete=lambda *a: calls.append("adel"),
+        generate_audio=lambda *a: calls.append("gen"),
+    )
+    ro = adapter.ReadOnlyClient(SimpleNamespace(notebooks=nb, artifacts=art, sources=object(), chat=object()))
+    ro.notebooks.list()
+    ro.artifacts.list_audio("n")
+    ro.artifacts.download_audio("n", "p", "a")
+    for bad in (
+        lambda: ro.notebooks.delete,
+        lambda: ro.notebooks.create,
+        lambda: ro.artifacts.delete,
+        lambda: ro.artifacts.generate_audio,
+        lambda: ro.sources,
+        lambda: ro.chat,
+        lambda: ro.notebooks.rename,
+    ):
+        with pytest.raises(AttributeError):
+            bad()
+    assert calls == ["list", "la", "dl"]
+
+
+def test_cli_timeout_kills_the_whole_group(tmp_path):
+    """FINDING-4: a timed-out command and the child it started are both gone."""
+    import subprocess
+    import sys
+    import time
+
+    import pytest
+
+    marker = tmp_path / "child.pid"
+    script = (
+        "import subprocess, sys, time;"
+        "c = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']);"
+        f"open(r'{marker}', 'w').write(str(c.pid));"
+        "time.sleep(60)"
+    )
+    with pytest.raises(subprocess.TimeoutExpired):
+        adapter._run_group([sys.executable, "-c", script], dict(__import__("os").environ), timeout=3)
+    child = int(marker.read_text())
+    time.sleep(1)
+    alive = True
+    try:
+        if sys.platform == "win32":
+            out = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {child}"], capture_output=True, text=True
+            ).stdout
+            alive = str(child) in out
+        else:
+            import os
+
+            os.kill(child, 0)
+    except OSError:
+        alive = False
+    assert not alive

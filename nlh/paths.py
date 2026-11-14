@@ -102,3 +102,58 @@ def secure_session_file(profile_name: str) -> None:
         for item in folder.iterdir():
             if item.is_file():
                 os.chmod(item, 0o600)
+
+
+def trash_dir() -> Path:
+    """Where failed sign-in profile folders are moved instead of being deleted (FINDING-3)."""
+    return ensure_private_dir(app_home() / "trash")
+
+
+class AppLock:
+    """Exclusive lock file in the app home, held for the life of the process (FINDING-2).
+
+    Stops two app processes from sharing one app home (a second start opens the running
+    page instead). fcntl on Mac and Linux, msvcrt on Windows. The OS drops the lock when
+    the process ends, even after a crash.
+    """
+
+    def __init__(self, path: Path | None = None):
+        self.path = path or (app_home() / "app.lock")
+        self._fh = None
+
+    def acquire(self) -> bool:
+        """Take the lock without waiting. False if another process holds it."""
+        fh = open(self.path, "a+b")  # noqa: SIM115 (kept open while the lock is held)
+        try:
+            if sys.platform == "win32":
+                import msvcrt
+
+                fh.seek(0)
+                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            fh.close()
+            return False
+        self._fh = fh
+        return True
+
+    def release(self) -> None:
+        """Let go of the lock (normally the process exit does this)."""
+        if self._fh is None:
+            return
+        try:
+            if sys.platform == "win32":
+                import msvcrt
+
+                self._fh.seek(0)
+                msvcrt.locking(self._fh.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(self._fh.fileno(), fcntl.LOCK_UN)
+        finally:
+            self._fh.close()
+            self._fh = None

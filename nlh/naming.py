@@ -22,10 +22,10 @@ MAX_FOLDER = 80
 
 # D-023, Windows only. A Windows PC without long-path support refuses paths of 260
 # characters or more. The full saved path stays under WIN_MAX_PATH, counting the ".mp3"
-# and room for a " (99)" clash suffix; the ".part" file during saving adds 5 more.
+# and room for a " (999)" clash suffix; the ".part" file during saving adds 5 more.
 WIN_MAX_PATH = 240
 WIN_MIN_STEM = 40
-SUFFIX_ROOM = len(" (99)")
+SUFFIX_ROOM = len(" (999)")  # FINDING-6: room for up to 999 same-named files
 TOO_LONG_MESSAGE = "This folder path is too long for Windows. Pick a shorter output folder."
 LONG_FOLDER_WARNING_CHARS = 150  # the page warns about output folders longer than this (Windows)
 
