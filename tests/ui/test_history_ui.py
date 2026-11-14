@@ -119,7 +119,12 @@ def test_player_streams_with_range_and_seeks(browser, server):
     page.wait_for_function(
         "window.__nlhTest.player().id !== null && !window.__nlhTest.player().paused", timeout=15000
     )
-    assert 206 in statuses
+    pid = page.evaluate("window.__nlhTest.player().id")
+    # Some Chromium builds do not report media range requests to the page listener, so ask
+    # with the page's own cookie: the stream must honour Range.
+    ranged = page.context.request.get(f"{server.base}/api/play/{pid}", headers={"Range": "bytes=0-99"})
+    assert ranged.status == 206 and len(ranged.body()) == 100
+    assert 206 in statuses or not statuses
     page.wait_for_timeout(800)
     page.locator("#player button[aria-label='Back 15 seconds']").click()
     assert page.evaluate("window.__nlhTest.player().time") < 1.5
