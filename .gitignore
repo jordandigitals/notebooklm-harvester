@@ -43,3 +43,7 @@ venv/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Retired files kept locally (never-delete rule)
+*.disabled
+*.bak
