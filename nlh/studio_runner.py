@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from nlh import adapter, harvest, studio
+from nlh import adapter, harvest, naming, studio
 from nlh import settings as app_settings
 from nlh.ledger import Ledger, now
 from nlh.log import get_logger
@@ -219,6 +219,12 @@ class StudioRunner:
         if acct is None:
             self.led.update_queue(item["id"], state="failed", message="The account was removed.")
             return
+        problem = _folder_problem(acct, item["notebook_title"])
+        if problem:
+            # Before counting and sending: no daily generation is spent on an overview that
+            # could not be saved in this folder.
+            self.led.update_queue(item["id"], state="failed", finished_at=now(), message=problem)
+            return
         if not self.led.mark_submitting(item["id"], day):
             return  # changed meanwhile (cancelled or dropped)
         self.state.current, self.state.step = item["id"], "Sending the request"
@@ -379,6 +385,23 @@ class StudioRunner:
 
 LIMIT_TEXT = "Paused: NotebookLM's usage limit for this account today."
 REFUSED_TEXT = "NotebookLM did not accept the request."  # adapter: definitely not made
+
+
+def _folder_problem(acct, notebook_title: str) -> str | None:
+    """Why the finished MP3 could not be saved in the account's folder, checked before sending.
+
+    Windows path cap (D-023): a folder too deep for even a short title would refuse the save
+    after NotebookLM had made the overview. A missing folder is not refused here: the overview
+    is then made and harvested later from the Library (the existing behaviour).
+    """
+    out = Path(acct.output_dir) if acct.output_dir else None
+    if out is None or not out.is_dir():
+        return None
+    try:
+        naming.check_fits(out, notebook_title)
+    except naming.PathTooLong as exc:
+        return f"{exc.message} Nothing was sent to NotebookLM."
+    return None
 
 
 def _instructions(item: dict) -> str:

@@ -449,3 +449,47 @@ def test_removed_from_an_earlier_day_does_not_pause_today(ledger, setup, g):
     rows = ledger.queue_items()
     assert rows[0]["state"] == "failed" and "removed" in rows[0]["message"]
     assert not ledger.limit_hit(a.id, "2026-11-14") and rows[1]["state"] == "done"
+
+
+def test_windows_too_deep_folder_refused_before_sending(ledger, setup, g, monkeypatch, tmp_path):
+    """D-023 for Studio: a folder too deep for the Windows cap fails the row before any request,
+    so no daily generation is spent and nothing is written."""
+    from nlh import naming, paths
+
+    a, _b, _out = setup
+    deep = tmp_path / "deep"
+    deep.mkdir()
+    ledger.update_account(a.id, output_dir=str(deep))
+    monkeypatch.setattr(paths, "is_windows", lambda: True)
+    # Treat the folder as about 200 characters long, whatever the real temp path is.
+    monkeypatch.setattr(naming, "WIN_MAX_PATH", 240 - 200 + len(str(deep.resolve())))
+    queue(ledger, a, ["Soil"])
+    run(runner(ledger))
+    row = ledger.queue_items()[0]
+    assert row["state"] == "failed" and "too long for Windows" in row["message"]
+    assert "Nothing was sent" in row["message"]
+    assert g.sent == [] and ledger.submitted_on(a.id, "2026-11-14") == 0
+    assert list(deep.iterdir()) == []
+
+
+@needs_ffmpeg
+def test_studio_save_under_the_windows_cap_is_shortened(ledger, setup, g, monkeypatch, tmp_path):
+    """A deep but workable folder: the Studio save goes through and its path stays under 240."""
+    import os
+
+    from nlh import naming, paths
+
+    a, _b, _out = setup
+    deep = tmp_path / "deep"
+    deep.mkdir()
+    ledger.update_account(a.id, output_dir=str(deep))
+    monkeypatch.setattr(paths, "is_windows", lambda: True)
+    monkeypatch.setattr(naming, "WIN_MAX_PATH", 240 - 100 + len(str(deep.resolve())))
+    long_title = "Lighthouse " + "lenses " * 40
+    queue(ledger, a, [long_title.strip()])
+    run(runner(ledger))
+    row = ledger.queue_items()[0]
+    assert row["state"] == "done" and row["harvest_id"], row["message"]
+    h = ledger.harvest_by_id(row["harvest_id"])
+    assert h.file_present
+    assert len(os.path.abspath(h.saved_path)) + naming.SUFFIX_ROOM < naming.WIN_MAX_PATH
