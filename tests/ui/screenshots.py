@@ -152,9 +152,14 @@ def capture(out_dir: Path, prefix: str) -> list[str]:
                 pg.evaluate(post, {"studio_ask_warned": True, "studio_daily_cap": 20})
                 # Clear what earlier shots left queued, so each shot shows only its own run.
                 pg.evaluate(
-                    "async () => { const q = await (await fetch('/api/studio/queue')).json();"
+                    "async () => {"
                     " const h = {method: 'POST', headers: {'X-NLH-Req': '1'}};"
-                    " for (const r of q.rows) if (r.state === 'queued')"
+                    " await fetch('/api/studio/cancel', h);"
+                    " const get = async () => (await fetch('/api/studio/queue')).json();"
+                    " for (let i = 0; i < 120; i++) { const s = await get();"
+                    " if (!s.runner.running) break; await new Promise(r => setTimeout(r, 500)); }"
+                    " const q2 = await get(); const open = ['queued', 'generating', 'needs_review'];"
+                    " for (const r of q2.rows) if (open.includes(r.state))"
                     " await fetch(`/api/studio/queue/${r.id}/drop`, h); }"
                 )
                 pg.reload()

@@ -174,7 +174,7 @@ def test_failed_request_still_counts(ledger, setup, g, home):
     g.fail_network = True
     queue(ledger, a, ["One"])
     run(runner(ledger))
-    assert states(ledger) == ["failed"]
+    assert states(ledger) == ["needs_review"]  # it may have reached Google: check, never resend blind
     assert ledger.submitted_on(a.id, "2026-11-14") == 1  # counted before the call: no undercount
     assert len(g.sent) == 1  # never retried
 
@@ -337,21 +337,24 @@ def test_no_output_folder_marks_done_without_saving(ledger, g):
     assert (
         row["state"] == "done"
         and row["harvest_id"] is None
-        and "choose this account's folder" in row["message"]
+        and "choose the account's folder" in row["message"]
     )
 
 
-def test_generation_timeout_stops_and_keeps_row(ledger, setup, g):
+def test_generation_timeout_fails_that_row_and_carries_on(ledger, setup, g):
     a, _b, _out = setup
     g.complete_after = 10**6
     ids = queue(ledger, a, ["Slow"])
     old = (datetime.now().astimezone() - timedelta(hours=2)).isoformat()
     ledger.mark_submitting(ids[0], "2026-11-14")
     ledger.update_queue(ids[0], state="generating", task_id="task-old", submitted_at=old)
-    g.made["task-old"] = {"nb": "nb1", "title": "Slow", "polls": 0}
+    g.made["task-old"] = {"nb": "nb1", "title": "Slow", "polls": -(10**6)}  # never finishes
+    queue(ledger, a, ["Next"])
+    g.complete_after = 0
     r = runner(ledger)
     run(r)
-    assert states(ledger) == ["generating"] and "longer than usual" in r.state.message
+    assert states(ledger)[0] == "failed" and "40 minutes" in ledger.queue_items()[0]["message"]
+    assert len(g.sent) == 1  # the stuck one does not block the rest
 
 
 @needs_ffmpeg
@@ -382,3 +385,67 @@ def test_sign_in_needed_while_following_stops_without_cancelling(ledger, setup, 
     run(r)
     assert states(ledger) == ["generating", "queued"]  # nothing cancelled, nothing re-sent
     assert "Then click Resume" in r.state.message and len(g.sent) == 1
+
+
+# ---------------------------------------------------------------- code review fixes
+
+
+@needs_ffmpeg
+def test_studio_save_holds_the_harvest_lock(ledger, setup, g, monkeypatch):
+    from nlh import harvest
+
+    seen = []
+    real = harvest.harvest_one
+
+    def spy(*a, **k):
+        seen.append(harvest.WORK_LOCK.locked())
+        return real(*a, **k)
+
+    monkeypatch.setattr(harvest, "harvest_one", spy)
+    queue(ledger, setup[0], ["One"])
+    run(runner(ledger))
+    assert seen == [True]
+
+
+def test_sign_in_refusal_on_send_halts_and_keeps_the_rest_queued(ledger, setup, g):
+    a, _b, _out = setup
+
+    def refuse(*args):
+        g.sent.append(args)
+        raise adapter.AdapterError(
+            "This account's Google sign-in has expired. Use Sign in again.", "needs_sign_in"
+        )
+
+    adapter.generate_audio = refuse
+    queue(ledger, a, ["One", "Two", "Three"])
+    r = runner(ledger)
+    run(r)
+    assert states(ledger) == ["failed", "queued", "queued"] and len(g.sent) == 1
+    assert "click Start after signing in" in r.state.message
+
+
+def test_requeue_only_once(client, ledger, setup):
+    _app, c = client
+    ids = queue(ledger, setup[0], ["One"])
+    ledger.update_queue(ids[0], state="failed", message="boom")
+    assert c.post(f"/api/studio/queue/{ids[0]}/requeue", headers=H).status_code == 200
+    assert c.post(f"/api/studio/queue/{ids[0]}/requeue", headers=H).status_code == 409
+    assert states(ledger) == ["failed", "queued"]
+
+
+def test_linked_task_ids_cover_every_row(ledger, setup):
+    ids = queue(ledger, setup[0], [f"T{i}" for i in range(230)])
+    ledger.update_queue(ids[-1], task_id="late-task")
+    assert "late-task" in ledger.linked_task_ids()
+
+
+def test_removed_from_an_earlier_day_does_not_pause_today(ledger, setup, g):
+    a, _b, _out = setup
+    ids = queue(ledger, a, ["Old"])
+    ledger.mark_submitting(ids[0], "2026-11-13")
+    ledger.update_queue(ids[0], state="generating", task_id="gone")
+    queue(ledger, a, ["Today"])
+    run(runner(ledger, "2026-11-14"))
+    rows = ledger.queue_items()
+    assert rows[0]["state"] == "failed" and "removed" in rows[0]["message"]
+    assert not ledger.limit_hit(a.id, "2026-11-14") and rows[1]["state"] == "done"

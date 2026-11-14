@@ -93,11 +93,23 @@ def start(page):
     page.locator("#dlg .btn-primary").click()
 
 
-def wait_idle(page, timeout=60000):
-    page.wait_for_function(
-        "window.__nlhTest.studio.queue() && !window.__nlhTest.studio.queue().running", timeout=timeout
-    )
-    page.wait_for_timeout(300)
+def wait_idle(page, timeout=90.0, open_states=("queued", "submitting", "generating")):
+    """Wait until the server's runner has stopped and no row is waiting, sending or being made
+    (the page's own copy can say "not running" for a moment before Start's answer arrives)."""
+    import time
+
+    end = time.time() + timeout
+    while time.time() < end:
+        idle = page.evaluate(
+            "async (open) => { const q = await (await fetch('/api/studio/queue')).json();"
+            " return !q.runner.running && !q.rows.some(r => open.includes(r.state)); }",
+            list(open_states),
+        )
+        if idle:
+            page.wait_for_timeout(1500)  # let the page's own poll catch up
+            return
+        page.wait_for_timeout(500)
+    raise AssertionError("the Studio queue did not finish")
 
 
 def test_queue_runs_one_at_a_time_and_saves_mp3(browser):
@@ -152,7 +164,7 @@ def test_cancel_stops_after_the_current_step(browser):
         start(page)
         page.wait_for_selector("#studio-cancel", timeout=15000)
         page.click("#studio-cancel")
-        wait_idle(page)
+        wait_idle(page, open_states=("queued", "submitting"))  # one may stay "being made"
         states = [r["state"] for r in srv.api("/api/studio/queue")["rows"]]
         assert states.count("cancelled") >= 1 and "queued" not in states
         assert set(states) <= {"cancelled", "generating", "done"}

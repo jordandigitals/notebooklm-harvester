@@ -235,10 +235,20 @@ class StudioRunner:
         except adapter.AdapterError as exc:
             if exc.state == "limit":
                 self._limit(item, day)
-            else:
+            elif exc.state == "needs_sign_in":
+                # Refused before anything was made. The rest stay queued; sign in, then Start.
                 self.led.update_queue(item["id"], state="failed", finished_at=now(), message=exc.message)
-                if exc.state == "needs_sign_in":
-                    self._pause_account(item["account_id"], exc.message)
+                self._halt = f"{exc.message} The rest of the queue is waiting; click Start after signing in."
+            elif exc.message == REFUSED_TEXT:
+                self.led.update_queue(item["id"], state="failed", finished_at=now(), message=exc.message)
+            else:
+                # The request may have reached NotebookLM before the error: never offer a blind
+                # resend. the person checks NotebookLM first (the same state as after a crash).
+                self.led.update_queue(
+                    item["id"],
+                    state="needs_review",
+                    message=f"{exc.message} It may have reached NotebookLM. Check there before resending.",
+                )
             return
         self.led.update_queue(item["id"], state="generating", task_id=sub.task_id, message="Being made.")
         log.info("studio item %d accepted as task %s", item["id"], sub.task_id)
@@ -256,11 +266,6 @@ class StudioRunner:
         )
         self.state.message = self._limit_note
         log.info("studio limit for account %d on %s", item["account_id"], day)
-
-    def _pause_account(self, account_id: int, message: str) -> None:
-        for other in self.led.queue_items(("queued",)):
-            if other["account_id"] == account_id:
-                self.led.update_queue(other["id"], state="failed", message=message)
 
     def _follow(self, item: dict) -> str | None:
         """Poll the notebook's audio list until this task is finished, removed or too slow.
@@ -288,14 +293,17 @@ class StudioRunner:
                 found = next((o for o in ovs if o.artifact_id == item["task_id"]), None)
                 if found is None:
                     missing += 1
-                    first_missing = first_missing or self.clock()
+                    first_missing = self.clock() if first_missing is None else first_missing
                     if missing >= MISSING_POLLS and self.clock() - first_missing >= MISSING_WINDOW_S:
                         # NotebookLM drops a request it will not make (often a daily limit).
-                        self._limit(item, item["submit_day"] or self.today())
-                        self.led.update_queue(
-                            item["id"],
-                            message="NotebookLM removed this request, usually because of its daily limit.",
-                        )
+                        removed = "NotebookLM removed this request, usually because of its daily limit."
+                        if (item["submit_day"] or self.today()) == self.today():
+                            self._limit(item, self.today())
+                            self.led.update_queue(item["id"], message=removed)
+                        else:  # an earlier day's limit says nothing about today's
+                            self.led.update_queue(
+                                item["id"], state="failed", finished_at=now(), message=removed
+                            )
                         return None
                 else:
                     missing, first_missing = 0, None
@@ -316,9 +324,11 @@ class StudioRunner:
             ):
                 self.led.update_queue(
                     item["id"],
-                    message="Taking much longer than usual. It stays here; Resume checks it again.",
+                    state="failed",
+                    finished_at=now(),
+                    message="Not finished after 40 minutes. If it finishes later, a normal harvest saves it.",
                 )
-                return "An overview is taking much longer than usual. Stopped; Resume checks it again."
+                return None
             if self._wait(self.poll_s):
                 continue  # loop top reports the stop
 
@@ -334,19 +344,24 @@ class StudioRunner:
                 item["id"],
                 state="done",
                 finished_at=now(),
-                message="Made in NotebookLM, not saved: choose this account's folder, then harvest it.",
+                message="Made in NotebookLM, not saved: choose the account's folder, Refresh, then harvest.",
             )
             return
-        result = harvest.harvest_one(
-            self.led,
-            acct,
-            ov,
-            out,
-            template=app_settings.load()["naming_template"],
-            origin="studio",
-        )
+        # The same lock every library harvest holds: a Studio save never runs beside one.
+        with harvest.WORK_LOCK:
+            result = harvest.harvest_one(
+                self.led,
+                acct,
+                ov,
+                out,
+                template=app_settings.load()["naming_template"],
+                origin="studio",
+            )
         row = self.led.harvest(ov.artifact_id)
-        if result.outcome in ("saved", "skipped") and row is not None:
+        saved = row is not None and (
+            result.outcome == "saved" or (result.outcome == "skipped" and row.file_present)
+        )
+        if saved:
             self.led.update_queue(
                 item["id"], state="done", finished_at=now(), harvest_id=row.id, message=f"Saved: {ov.title}"
             )
@@ -358,15 +373,12 @@ class StudioRunner:
                 finished_at=now(),
                 message=f"Made, but saving failed: {result.message} Harvest it from the Library.",
             )
-        self.led.record_attempt(
-            acct.id,
-            ov.artifact_id,
-            result.outcome if result.outcome != "skipped" else "saved",
-            result.message,
-        )
+        if result.outcome in ("saved", "failed"):  # as harvest_many: skips are not attempts
+            self.led.record_attempt(acct.id, ov.artifact_id, result.outcome, result.message)
 
 
 LIMIT_TEXT = "Paused: NotebookLM's usage limit for this account today."
+REFUSED_TEXT = "NotebookLM did not accept the request."  # adapter: definitely not made
 
 
 def _instructions(item: dict) -> str:

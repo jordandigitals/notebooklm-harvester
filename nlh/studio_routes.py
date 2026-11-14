@@ -21,6 +21,7 @@ from nlh.studio_runner import StudioRunner
 log = get_logger()
 
 MAX_QUESTION = 2000
+REQUEUED = "Queued again"
 
 
 def register(app, led: Ledger, worker, get_account, body, account_listing) -> None:
@@ -250,6 +251,8 @@ def register(app, led: Ledger, worker, get_account, body, account_listing) -> No
     @app.post("/api/studio/run")
     def studio_run():
         """Start or resume the queue (the person's click). Nothing else ever starts it."""
+        if runner.state.running:
+            return jsonify(error="The queue is already running."), 409
         if not led.queue_items(("queued", "generating")):
             return jsonify(error="Nothing is waiting in the queue."), 400
         if not runner.start():
@@ -294,6 +297,8 @@ def register(app, led: Ledger, worker, get_account, body, account_listing) -> No
         row = queue_row(item_id)
         if row["state"] not in ("failed", "cancelled", "paused_limit"):
             return jsonify(error="Only a failed, paused or dropped overview can be queued again."), 400
+        if (row["message"] or "").startswith(REQUEUED):
+            return jsonify(error="This overview is already queued again."), 409
         fields = (
             "plan_id",
             "account_id",
@@ -305,9 +310,12 @@ def register(app, led: Ledger, worker, get_account, body, account_listing) -> No
             "audio_length",
             "language",
         )
-        led.add_queue_items([{k: row[k] for k in fields}])
-        if row["state"] == "paused_limit":
-            led.update_queue(item_id, state="cancelled", message="Queued again as a new row.")
+        new_id = led.add_queue_items([{k: row[k] for k in fields}])[0]
+        led.update_queue(
+            item_id,
+            state="cancelled" if row["state"] == "paused_limit" else row["state"],
+            message=f"{REQUEUED} (row {new_id}). {row['message'] or ''}".strip(),
+        )
         return jsonify(queue_view())
 
     @app.post("/api/studio/queue/<int:item_id>/check")
@@ -324,7 +332,7 @@ def register(app, led: Ledger, worker, get_account, body, account_listing) -> No
             )
         except adapter.AdapterError as exc:
             return jsonify(error=exc.message), 502
-        linked = {r["task_id"] for r in led.queue_items() if r["task_id"]}
+        linked = led.linked_task_ids()
         since = datetime.fromisoformat(row["submitted_at"]) - timedelta(minutes=2)
         candidates = [
             o

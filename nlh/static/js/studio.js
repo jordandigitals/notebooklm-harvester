@@ -556,7 +556,7 @@ function queueRow(row, r) {
   if (row.state === "needs_review") {
     actions.append(button("Check NotebookLM", { cls: "btn btn-sm btn-primary", iconName: "search", title: `Check whether ${row.title} was made`, onClick: () => rowAction(row, "check") }));
   }
-  if (["failed", "cancelled", "paused_limit"].includes(row.state)) {
+  if (["failed", "cancelled", "paused_limit"].includes(row.state) && !(row.message || "").startsWith("Queued again")) {
     actions.append(button("Queue again", { cls: "btn btn-sm", iconName: "refresh", title: `Queue ${row.title} again`, onClick: () => rowAction(row, "requeue") }));
   }
   if (["queued", "generating", "needs_review", "paused_limit"].includes(row.state) && !busy) {

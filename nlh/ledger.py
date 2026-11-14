@@ -596,3 +596,8 @@ class Ledger:
                 ("The app stopped while sending this request. Check NotebookLM before sending it again.",),
             )
             return cur.rowcount
+
+    def linked_task_ids(self) -> set[str]:
+        """Every task id any queue row follows (all rows, not a page of them)."""
+        rows = self.conn.execute("SELECT task_id FROM studio_queue WHERE task_id IS NOT NULL").fetchall()
+        return {r[0] for r in rows}
