@@ -49,7 +49,7 @@ def rows_by_id(server):
 
 def test_queue_cancel_leaves_nothing_then_retry_and_clear(browser, server):
     work = next(a["id"] for a in server.api("/api/library")["accounts"] if a["label"] == "Work account")
-    page = open_page(browser, server, f"acct={work}&status=new")
+    page = open_page(browser, server, f"acct={work}&status=new&exc=glacier")
     ids = page.evaluate("window.__nlhTest.filteredIds()")[:12]
     before = rows_by_id(server)
     # select exactly 12 by clicking their checkboxes (scrolling the list as needed)
