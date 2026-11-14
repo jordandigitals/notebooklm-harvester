@@ -523,3 +523,6 @@ body.has-player .actionbar { bottom: 132px; }
 .nb-option .nb-note { display: block; font-size: 0.8rem; }
 .vgroup-li { position: absolute; left: 0; right: 0; height: var(--group-h); }
 .vgroup-li > .vgroup { position: static; height: 100%; }
+.nb-option .grow { min-width: 0; overflow-wrap: anywhere; }
+.nb-option .nb-note { white-space: normal; }
+.nb-option .rbadge { display: inline-block; white-space: nowrap; }

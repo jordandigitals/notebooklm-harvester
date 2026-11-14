@@ -131,10 +131,22 @@ def test_all_new_skips_shared_unless_asked(app, monkeypatch):
     c.get(f"/api/accounts/{acct.id}/library", headers=H)  # load the listing
     job = c.post(f"/api/accounts/{acct.id}/harvest", json={"all_new": True}, headers=H).get_json()
     assert job["title"].startswith("Harvesting 2 ")  # own and unknown; editor and viewer skipped
+    _finish(c, job["id"])
     job = c.post(
         f"/api/accounts/{acct.id}/harvest", json={"all_new": True, "include_shared": True}, headers=H
     ).get_json()
     assert job["title"].startswith("Harvesting 4 ")
+    _finish(c, job["id"])  # never leave a job running past the test (the ledger closes after it)
+
+
+def _finish(c, job_id):
+    import time
+
+    for _ in range(200):
+        if c.get(f"/api/jobs/{job_id}", headers=H).get_json()["state"] not in ("queued", "running"):
+            return
+        time.sleep(0.05)
+    raise AssertionError("job did not finish")
 
 
 def test_studio_refuses_view_only_and_unknown(app, monkeypatch):
