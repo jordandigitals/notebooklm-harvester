@@ -1,7 +1,7 @@
 // Details drawer: every field for one overview, with copy buttons. Non-modal: focus moves
 // in on open, Esc or Close returns it to where it was, and the page stays usable.
 import { api } from "./api.js";
-import { $, el, button, pill, shortDate, duration, size } from "./dom.js";
+import { $, el, button, pill, shortDate, duration, size, role } from "./dom.js";
 import { toast } from "./ui.js";
 import { openFolder } from "./accounts.js";
 import { play } from "./player.js";
@@ -88,8 +88,8 @@ export async function openDrawer(row, account, opts = {}) {
       const actions = el("div", "row");
       if (s.playable) actions.append(button("Play", { cls: "btn btn-sm btn-primary", iconName: "play", onClick: () => play(s.id, s.title, s.notebook) }));
       else if (s.present && s.play_reason) actions.append(el("p", "hint", s.play_reason));
-      if (s.present) actions.append(button("Show in folder", { cls: "btn btn-sm", iconName: "folder", onClick: () => openFolder(s.folder) }));
-      if (!s.present && s.reachable && opts.startJob) {
+      if (s.present && !role.phone) actions.append(button("Show in folder", { cls: "btn btn-sm", iconName: "folder", onClick: () => openFolder(s.folder) }));
+      if (!s.present && s.reachable && opts.startJob && !role.phone) {
         actions.append(button("Download again", { cls: "btn btn-sm", iconName: "download", onClick: () => opts.startJob(api(`/api/history/${s.id}/redownload`, { method: "POST" })) }));
       }
       if (!s.present && !s.reachable) actions.append(el("p", "hint", "The folder that holds this file is not reachable. Plug in the drive, then refresh."));

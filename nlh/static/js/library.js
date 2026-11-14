@@ -2,7 +2,7 @@
 // The whole cached listing stays in memory; search and filters run over all of it, and
 // only the rows in view (plus a buffer) exist in the page (pagination ruling 2026-11-14).
 import { api } from "./api.js";
-import { $, el, icon, button, pill, show, shortDate, duration, size, plural, STATUS_TEXT } from "./dom.js";
+import { $, el, icon, button, pill, show, shortDate, duration, size, plural, STATUS_TEXT, role } from "./dom.js";
 import { toast, confirmDialog, promptDialog, popover, closePopover } from "./ui.js";
 import { openDrawer } from "./drawer.js";
 import {
@@ -253,7 +253,7 @@ function renderRow(r, i) {
   if (selected) row.classList.add("is-selected");
   if (i === lib.focus) row.classList.add("is-focus");
   const cell = el("span");
-  if (SELECTABLE.has(r.status)) {
+  if (SELECTABLE.has(r.status) && !role.phone) {
     const box = el("input");
     box.type = "checkbox";
     box.checked = selected;

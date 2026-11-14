@@ -1,6 +1,6 @@
 // Page start-up and wiring. ES module, no build step, no third-party code.
 import { api } from "./api.js";
-import { $, el, icon, button, show, STATUS_TEXT } from "./dom.js";
+import { $, el, icon, button, show, STATUS_TEXT, role } from "./dom.js";
 import { toast, confirmDialog, popover, dialog } from "./ui.js";
 import {
   lib, initLibrary, loadLibrary, apply, renderFilters, setQuery, clearAll, applyView, openViewsMenu,
@@ -72,6 +72,8 @@ function notifyIfAway(job) {
 
 async function loadState() {
   const st = await api("/api/state");
+  role.phone = st.role === "phone";
+  document.body.classList.toggle("is-phone", role.phone);
   acctState.windows = st.windows;
   acctState.interactive = st.interactive;
   lib.demo = st.demo;
@@ -119,6 +121,7 @@ function syncUrl(push = false) {
 }
 
 function switchView(view, push = true) {
+  if (role.phone && (view === "studio" || view === "settings")) view = "library"; // laptop only
   app.view = view;
   for (const t of document.querySelectorAll(".tab[data-view]")) {
     if (t.dataset.view === view) t.setAttribute("aria-current", "page"); else t.removeAttribute("aria-current");

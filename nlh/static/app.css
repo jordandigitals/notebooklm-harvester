@@ -498,3 +498,17 @@ body.has-player .actionbar { bottom: 132px; }
   .btn-sm { min-height: 40px; }
   .btn-icon.btn-sm { width: 40px; }
 }
+
+/* Phone listen mode (D-026): browse, search and play only; the server refuses the rest anyway. */
+.is-phone .tab[data-view="studio"], .is-phone .tab[data-view="settings"], .is-phone #keys-help, .is-phone #quit,
+.is-phone #add-toggle, .is-phone #add-panel, .is-phone #account-card, .is-phone #job-box,
+.is-phone #sel-visible, .is-phone #sel-new, .is-phone #sel-invert, .is-phone #actionbar,
+.is-phone .drawer .btn-icon[title^="Copy"] { display: none !important; }
+.phone-page .panel { max-width: 520px; margin: var(--s5) auto; display: grid; gap: var(--s3); }
+.pair-form { display: grid; gap: var(--s3); }
+.pair-form .input { width: 100%; }
+.phone-qr { width: 216px; max-width: 100%; background: #fff; padding: var(--s2); border-radius: var(--r-sm); }
+.phone-qr svg { display: block; width: 100%; height: auto; }
+.phone-link { font-family: var(--mono); font-size: 0.85rem; overflow-wrap: anywhere; }
+.phone-devices { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--s2); }
+.phone-devices li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); padding: var(--s2) var(--s3); border: 1px solid var(--line); border-radius: var(--r-sm); }

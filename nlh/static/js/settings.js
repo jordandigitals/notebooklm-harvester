@@ -176,6 +176,12 @@ export async function renderSettings() {
     }
   } catch (e) { studioCard.append(el("p", "error", e.message)); }
 
+  // Phone (D-026): listen from a phone on the same Wi-Fi
+  const phoneCard = section("Phone",
+    "Listen to your saved overviews from a phone on the same Wi-Fi. The phone can browse, search and play; everything else stays on this laptop. It works only while this laptop is on and the app is running. The connection is plain HTTP on your home network, and nothing is opened to the internet.");
+  phoneCard.id = "phone-card";
+  await drawPhone(phoneCard);
+
   // diagnostics
   const diag = section("Diagnostics", "Facts to include when asking for help. No account names, emails or sign-in data are included.");
   const pre = el("pre", "diag");
@@ -223,6 +229,77 @@ export async function renderSettings() {
   det.append(npre);
   about.append(det);
 
-  wrap.append(theme, naming, defaults, studioCard, notes, diag, trash, about);
+  wrap.append(theme, naming, defaults, studioCard, phoneCard, notes, diag, trash, about);
   view.replaceChildren(wrap);
 }
+
+
+let phoneTimer = null;
+
+/** Fill the Phone card: the on/off switch, the address, pairing (link and QR code) and paired phones. */
+async function drawPhone(card) {
+  clearInterval(phoneTimer);
+  const keep = [...card.children].slice(0, 2); // heading and hint
+  card.replaceChildren(...keep);
+  let ph;
+  try { ph = await api("/api/phone"); } catch (e) { card.append(el("p", "error", e.message)); return; }
+  const lab = el("label", "check");
+  const box = el("input");
+  box.type = "checkbox";
+  box.id = "phone-enable";
+  box.checked = ph.listening;
+  box.addEventListener("change", async () => {
+    try { await api("/api/phone/enable", { method: "POST", body: { on: box.checked } }); toast(box.checked ? "Phone listening is on." : "Phone listening is off. Phones can no longer connect."); }
+    catch (e) { toast(e.message, "bad"); }
+    drawPhone(card);
+  });
+  lab.append(box, el("span", "lbl", "Allow my phone on this Wi-Fi"));
+  card.append(lab);
+  if (ph.enabled && !ph.listening) card.append(el("p", "error", "Phone listening is on but not running. Check the Wi-Fi, then turn it off and on again."));
+  if (ph.listening) {
+    const addr = el("p", "");
+    addr.append(el("span", "hint", "Address for the phone: "), el("code", "phone-link", ph.url));
+    card.append(addr, el("p", "hint", "The first time, this computer may ask whether to allow incoming connections. Allow it on your home network only."));
+    const pairBox = el("div", "phone-pair");
+    pairBox.id = "phone-pair";
+    const pairBtn = button("Pair a phone", { cls: "btn btn-primary", iconName: "plus", onClick: async () => {
+      try {
+        const r = await api("/api/phone/pair", { method: "POST" });
+        const qr = el("div", "phone-qr");
+        qr.innerHTML = r.qr_svg; // SVG made on the laptop by the app, no user text in it
+        qr.setAttribute("role", "img");
+        qr.setAttribute("aria-label", "QR code for the pairing link");
+        const link = el("p", "phone-link", r.link);
+        link.id = "phone-pair-link";
+        const left = el("p", "hint");
+        left.id = "phone-pair-left";
+        let t = r.expires_s;
+        const tick = () => { left.textContent = t > 0 ? `Scan the code with the phone's camera, or open the link on the phone. It works once and expires in ${Math.floor(t / 60)} min ${String(t % 60).padStart(2, "0")} s.` : "This pairing link has expired. Press Pair a phone again."; t -= 1; if (t < -1) clearInterval(phoneTimer); };
+        clearInterval(phoneTimer);
+        tick();
+        phoneTimer = setInterval(tick, 1000);
+        pairBox.replaceChildren(pairBtn, qr, link, left);
+      } catch (e) { toast(e.message, "bad"); }
+    } });
+    pairBtn.id = "phone-pair-btn";
+    pairBox.append(pairBtn);
+    card.append(pairBox);
+  }
+  card.append(el("h3", "", "Paired phones"));
+  if (!ph.devices.length) card.append(el("p", "hint", "No phone is paired yet."));
+  else {
+    const list = el("ul", "phone-devices");
+    list.id = "phone-devices";
+    for (const d of ph.devices) {
+      const li = el("li");
+      li.append(el("strong", "grow", d.name), el("span", "hint", d.last_seen ? `Last used ${new Date(d.last_seen).toLocaleString()}` : "Not used yet"));
+      li.append(button("Remove", { cls: "btn btn-sm btn-danger", title: `Remove ${d.name}`, onClick: async () => {
+        try { await api(`/api/phone/devices/${d.id}/revoke`, { method: "POST" }); toast(`${d.name} can no longer connect.`); } catch (e) { toast(e.message, "bad"); }
+        drawPhone(card);
+      } }));
+      list.append(li);
+    }
+    card.append(list);
+  }
+}
+

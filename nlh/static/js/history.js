@@ -1,7 +1,7 @@
 // History view: server-side paging (the ledger only grows), filters, sort, row actions,
 // export of the whole filtered ledger (pagination ruling 2026-11-14).
 import { api } from "./api.js";
-import { $, el, icon, button, show, shortDate, duration, size, plural } from "./dom.js";
+import { $, el, icon, button, show, shortDate, duration, size, plural, role } from "./dom.js";
 import { toast, popover, closePopover } from "./ui.js";
 import { openFolder } from "./accounts.js";
 import { play } from "./player.js";
@@ -214,6 +214,7 @@ function actions(r) {
   const playBtn = iconBtn("play", r.playable ? "Play" : (r.play_reason || "Cannot be played here"),
     () => play(r.id, r.title, r.notebook), !r.playable);
   if (r.playable) playBtn.classList.replace("btn-ghost", "btn-primary-soft");
+  if (role.phone) { row.append(playBtn); return row; } // listen mode: play only (D-026)
   row.append(playBtn,
     iconBtn("folder", r.present ? "Show in folder" : "The file is not there", () => openFolder(r.folder), !r.present),
     iconBtn("copy", "Copy path", async () => {

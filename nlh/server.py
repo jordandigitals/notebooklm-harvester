@@ -25,15 +25,50 @@ import webbrowser
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from flask import Flask, Response, abort, jsonify, redirect, request, send_file, send_from_directory
+from flask import Flask, Response, abort, g, jsonify, redirect, request, send_file, send_from_directory
 
-from nlh import APP_NAME, __version__, accounts, adapter, demo, harvest, media, naming, paths, studio_routes
+from nlh import (
+    APP_NAME,
+    __version__,
+    accounts,
+    adapter,
+    demo,
+    harvest,
+    media,
+    naming,
+    paths,
+    phone,
+    studio_routes,
+)
 from nlh import settings as app_settings
 from nlh.ledger import Ledger
 from nlh.log import get_logger
 
 log = get_logger()
 STATIC = Path(__file__).parent / "static"
+
+PHONE_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>{{APP_NAME}}</title>
+<link rel="stylesheet" href="/static/app.css"></head><body><main class="layout phone-page">
+<section class="panel"><h1 class="brand">{{APP_NAME}}</h1>{{BODY}}</section></main></body></html>"""
+
+# Phone requests may only read and stream (D-026). Everything not listed is refused, whatever the method.
+PHONE_ENDPOINTS = frozenset(
+    {
+        "index",
+        "static_file",
+        "state",
+        "get_settings",
+        "whole_library",
+        "history_page",
+        "history_notebooks",
+        "item_details",
+        "stats",
+        "play",
+    }
+)
+PHONE_OPEN_ENDPOINTS = frozenset({"phone_pair_page", "phone_pair_post"})  # before a phone is paired
+PHONE_OPEN_STATIC = frozenset({"app.css", "favicon.svg"})
 
 STALE_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>{{APP_NAME}}</title>
@@ -139,6 +174,9 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
     app = Flask(__name__, static_folder=None)
     led = ledger or Ledger()
     worker = Worker()
+    phones = phone.PhoneState()
+    phones.load()
+    app.config["PHONES"] = phones
     library: dict[int, list] = {}  # account id -> [(Notebook, [AudioOverview])]
     cached_at: dict[int, str] = {}  # account id -> when a cached listing was read
 
@@ -147,6 +185,8 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
     @app.before_request
     def guard():
         """Host check, then the page key from the URL (first open), a header or the cookie."""
+        if request.environ.get(phone.ENV_MARK):
+            return phone_guard()
         host = (request.host or "").split(":")[0]
         if host not in ("127.0.0.1", "localhost"):
             abort(403)
@@ -177,6 +217,60 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
             if request.headers.get("X-NLH-Req") != "1":
                 return jsonify(error="Refused: missing request header."), 403
         return None
+
+    def phone_page(body: str, status: int = 200):
+        return PHONE_PAGE.replace("{{APP_NAME}}", APP_NAME).replace("{{BODY}}", body), status
+
+    def phone_guard():
+        """Requests from the phone listener (D-026): exact Host, paired device, read-only routes."""
+        g.phone = True
+        if not phones.listening or request.host != f"{phones.address}:{phones.port}":
+            return "Refused.", 403  # stops DNS rebinding and a stopped listener
+        if request.path == "/favicon.ico":
+            return "", 204
+        if request.endpoint in PHONE_OPEN_ENDPOINTS:
+            return None
+        if request.endpoint == "static_file" and (request.view_args or {}).get("name") in PHONE_OPEN_STATIC:
+            return None
+        dev = phones.device_for(request.cookies.get(phone.COOKIE))
+        if dev is None:
+            if request.path.startswith("/api/"):
+                return jsonify(error="This phone is not paired."), 403
+            return phone_page(
+                "<p>This phone is not paired with the laptop.</p>"
+                "<p>On the laptop, open Settings, then Phone, and press Pair a phone."
+                " Open the link or scan the code with this phone.</p>",
+                403,
+            )
+        if request.method not in ("GET", "HEAD") or request.endpoint not in PHONE_ENDPOINTS:
+            if request.path.startswith("/api/"):
+                return jsonify(error="The phone can only browse and play. Use the laptop for this."), 403
+            return phone_page("<p>The phone can only browse and play. Use the laptop for this.</p>", 403)
+        g.phone_token = request.cookies.get(phone.COOKIE)
+        phones.touch(dev)
+        return None
+
+    @app.after_request
+    def phone_streams(resp):
+        """A phone response stops at its next chunk once the phone is revoked or listening is off."""
+        token = g.get("phone_token")
+        if token and (resp.direct_passthrough or resp.is_streamed):
+            inner = resp.response
+
+            def checked():
+                try:
+                    for chunk in inner:
+                        if not phones.listening or phones.device_for(token) is None:
+                            break
+                        yield chunk
+                finally:
+                    close = getattr(inner, "close", None)
+                    if close:
+                        close()
+
+            resp.response = checked()
+            resp.direct_passthrough = False
+        return resp
 
     @app.after_request
     def headers(resp):
@@ -276,6 +370,7 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
             tools=media.tools_available(),
             accounts=[account_view(a) for a in led.accounts()],
             jobs=current,
+            role="phone" if g.get("phone") else "laptop",
         )
 
     @app.post("/api/quit")
@@ -284,6 +379,7 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
         stopper = app.config.get("stop")
         if worker.busy():
             return jsonify(error="A job is still running. Wait for it to finish, then quit."), 400
+        phones.stop()  # the phone connection closes at once
         if stopper:
             threading.Timer(0.3, stopper).start()
         return jsonify(ok=True)
@@ -1029,7 +1125,98 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
     app.config["worker"] = worker
     app.config["library"] = library
     studio_routes.register(app, led, worker, get_account, body, account_listing)
+    register_phone_routes(app, phones, phone_page)
     return app
+
+
+def register_phone_routes(app, phones, phone_page) -> None:
+    """Laptop-side phone settings (refused to phones by the guard) and the phone's pairing page."""
+    import html as _html
+
+    def phone_view() -> dict:
+        s = app_settings.load()
+        return {
+            "enabled": s["phone_enabled"],
+            "listening": phones.listening,
+            "url": phones.url(),
+            "address": phone.lan_address(),
+            "devices": phones.list_devices(),
+            "code_left_s": phones.code_left_s(),
+        }
+
+    @app.get("/api/phone")
+    def phone_state():
+        return jsonify(phone_view())
+
+    @app.post("/api/phone/enable")
+    def phone_enable():
+        on = (request.get_json(silent=True) or {}).get("on") is True
+        if on:
+            port = app_settings.load()["phone_port"] or 0
+            err = phones.start(app, port)
+            if err:
+                return jsonify(error=err, **phone_view()), 409
+            app_settings.save({"phone_enabled": True, "phone_port": phones.port})
+        else:
+            phones.stop()
+            app_settings.save({"phone_enabled": False})
+        return jsonify(phone_view())
+
+    @app.post("/api/phone/pair")
+    def phone_new_code():
+        if not phones.listening:
+            return jsonify(error="Turn on phone listening first."), 409
+        code, ttl = phones.new_code()
+        link = f"{phones.url()}/pair/{code}"
+        return jsonify(link=link, qr_svg=phone.qr_svg(link), expires_s=ttl, **phone_view())
+
+    @app.post("/api/phone/devices/<device_id>/revoke")
+    def phone_revoke(device_id):
+        if not phones.revoke(device_id):
+            abort(404)
+        return jsonify(phone_view())
+
+    def pair_form(code: str, note: str = "") -> str:
+        return (
+            "<p>Pair this phone with the laptop so you can browse and play your saved overviews here.</p>"
+            + (f'<p class="error">{_html.escape(note)}</p>' if note else "")
+            + f'<form method="post" action="/pair/{_html.escape(code)}" class="pair-form">'
+            '<label class="field">Name for this phone<input class="input" name="name" maxlength="40" '
+            'value="My phone" autocomplete="off"></label>'
+            '<button class="btn btn-primary" type="submit">Pair this phone</button></form>'
+            '<p class="hint">Works only while the laptop is on and the app is running, on the same Wi-Fi. '
+            "The connection is plain HTTP on your home network.</p>"
+        )
+
+    expired = (
+        "<p>This pairing link has expired or was already used.</p>"
+        "<p>On the laptop, press Pair a phone again for a new link.</p>"
+    )
+
+    @app.get("/pair/<code>")
+    def phone_pair_page(code):
+        if not request.environ.get(phone.ENV_MARK):
+            abort(404)  # pairing happens only through the phone connection
+        if not phones.allow_attempt(request.remote_addr or "?"):
+            return phone_page("<p>Too many tries. Wait a minute, then try again.</p>", 429)
+        if not phones.code_valid(code):
+            phones.note_failure(request.remote_addr or "?")
+            return phone_page(expired, 410)
+        return phone_page(pair_form(code))
+
+    @app.post("/pair/<code>")
+    def phone_pair_post(code):
+        if not request.environ.get(phone.ENV_MARK):
+            abort(404)
+        if not phones.allow_attempt(request.remote_addr or "?"):
+            return phone_page("<p>Too many tries. Wait a minute, then try again.</p>", 429)
+        token = phones.pair(code, request.form.get("name", ""))
+        if token is None:
+            phones.note_failure(request.remote_addr or "?")
+            return phone_page(expired, 410)
+        resp = redirect("/", code=303)
+        resp.set_cookie(phone.COOKIE, token, max_age=400 * 86400, httponly=True, samesite="Strict", path="/")
+        return resp
 
 
 _CLASH = re.compile(r" \(\d+\)$")
@@ -1180,6 +1367,13 @@ def serve(open_browser: bool = True) -> int:
     app = create_app(token)
     server = make_server("127.0.0.1", port, app, threaded=True)
     app.config["stop"] = server.shutdown
+    if app_settings.load()["phone_enabled"]:  # stays on across restarts until turned off (D-026)
+        phones = app.config["PHONES"]
+        err = phones.start(app, app_settings.load()["phone_port"] or 0)
+        if err:
+            _say(f"Phone listening is on but could not start: {err}")
+        else:
+            app_settings.save({"phone_port": phones.port})
     url = f"http://127.0.0.1:{port}/?t={token}"
     log.info("server started on 127.0.0.1:%d", port)
     _say(f"{APP_NAME} is running. If the page did not open, use the address in your browser:")

@@ -70,6 +70,8 @@ DEFAULTS = {
     "sort": "newest",
     "group": "none",
     "history_page_size": 50,
+    "phone_enabled": False,  # D-026: listen on the home network for paired phones
+    "phone_port": 0,  # remembered so the phone's bookmark keeps working
     "views": None,  # None means "use DEFAULT_VIEWS"
     # Studio (D-025)
     "studio_daily_cap": 4,  # generated overviews per account per local day
@@ -178,6 +180,12 @@ def validate(update: dict) -> dict:
         elif key == "history_page_size":
             if value not in PAGE_SIZES:
                 raise SettingsError("Page size must be 50, 100 or 250.")
+        elif key == "phone_enabled":
+            if not isinstance(value, bool):
+                raise SettingsError("That setting must be on or off.")
+        elif key == "phone_port":
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 65535:
+                raise SettingsError("Port must be a number from 0 to 65535.")
         elif key == "studio_daily_cap":
             lo, hi = STUDIO_CAP_RANGE
             if not isinstance(value, int) or isinstance(value, bool) or not lo <= value <= hi:

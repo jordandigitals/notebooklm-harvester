@@ -82,3 +82,6 @@ export function size(bytes) {
 
 /** "1 thing" or "3 things". */
 export function plural(n, one, many = `${one}s`) { return `${n.toLocaleString()} ${n === 1 ? one : many}`; }
+
+/** Who is looking: a paired phone gets listen mode (browse, search, play only; D-026). */
+export const role = { phone: false };

@@ -29,6 +29,22 @@ export function play(id, title, notebook) {
   a.play().catch(() => toast("The file could not be played.", "bad"));
   $("player").classList.remove("is-hidden");
   document.body.classList.add("has-player");
+  mediaSession(title, notebook);
+}
+
+/** Title, notebook and buttons on a phone's lock screen and in system controls, where supported. */
+function mediaSession(title, notebook) {
+  if (!("mediaSession" in navigator)) return;
+  const a = state.audio;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({ title, artist: notebook || "", album: document.title.split(" · ")[0] });
+    const seek = (d) => { a.currentTime = Math.max(0, Math.min((a.duration || 0) - 0.5, a.currentTime + d)); };
+    navigator.mediaSession.setActionHandler("play", () => a.play());
+    navigator.mediaSession.setActionHandler("pause", () => a.pause());
+    navigator.mediaSession.setActionHandler("seekbackward", (e) => seek(-(e.seekOffset || 15)));
+    navigator.mediaSession.setActionHandler("seekforward", (e) => seek(e.seekOffset || 15));
+    navigator.mediaSession.setActionHandler("seekto", (e) => { if (e.seekTime !== undefined) a.currentTime = e.seekTime; });
+  } catch (e) { /* older browsers: the page controls still work */ }
 }
 
 function build() {
