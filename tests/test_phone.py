@@ -9,6 +9,7 @@ import pytest
 
 from nlh import phone, server
 from nlh import settings as app_settings
+from tests.lan_guard import needs_lan
 
 TOKEN = "k"
 H = {"X-NLH-Token": TOKEN}
@@ -295,6 +296,7 @@ def test_phone_settings_routes_are_laptop_only(app):
     assert r.status_code == 200 and r.get_json()["link"].startswith(f"http://{HOST}/pair/")
 
 
+@needs_lan
 def test_real_listener_binds_lan_only(app, home):
     """Start the real second listener: it binds the LAN address, never 0.0.0.0, and closes on stop."""
     import socket
@@ -382,6 +384,7 @@ def test_tunnel_interfaces_refused(name, tunnel):
     assert phone.is_tunnel(name) is tunnel
 
 
+@needs_lan
 def test_listener_closes_when_the_network_changes(app, home, monkeypatch):
     addr = phone.lan_address()
     if addr is None:

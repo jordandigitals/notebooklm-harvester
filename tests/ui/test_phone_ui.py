@@ -8,13 +8,17 @@ from pathlib import Path
 import pytest
 
 from nlh import phone
+from tests.lan_guard import needs_lan
 from tests.ui.demo_server import DemoServer
 
 pw = pytest.importorskip("playwright.sync_api")
 AXE = Path(__file__).resolve().parents[1] / "vendor" / "axe-core" / "axe.min.js"
 CHANNEL = os.environ.get("NLH_UI_CHANNEL", "chrome")
 
-pytestmark = pytest.mark.skipif(phone.lan_address() is None, reason="no private LAN address here")
+pytestmark = [
+    needs_lan,  # Windows: only with NLH_UI_LAN=1 (the firewall would ask)
+    pytest.mark.skipif(phone.lan_address() is None, reason="no private LAN address here"),
+]
 
 
 @pytest.fixture(scope="module")

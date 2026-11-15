@@ -52,6 +52,8 @@ jobs:
           ruff check .
           ruff format --check .
       - name: Tests
+        env:
+          NLH_UI_LAN: "1"  # CI runners never show the Windows firewall prompt
         run: pytest -q
 
   ui:
@@ -117,5 +119,6 @@ jobs:
         env:
           NLH_UI_TESTS: "1"
           NLH_UI_CHANNEL: chromium
+          NLH_UI_LAN: "1"  # phone tests open a real LAN listener; CI runners never prompt
           CI: "1"
         run: pytest -q -s tests/ui
