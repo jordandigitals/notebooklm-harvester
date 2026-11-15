@@ -1,0 +1,4 @@
+# Only for rebuilding the manual (not needed to run the app). The screenshots also need the
+# dev requirements (Playwright and Chrome) from requirements-dev.txt.
+reportlab==4.2.5
+pillow==13.0.0

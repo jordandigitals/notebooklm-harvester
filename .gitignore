@@ -47,3 +47,6 @@ desktop.ini
 # Retired files kept locally (never-delete rule)
 *.disabled
 *.bak
+
+# Built manual (published to MEGA and Drive, not kept in git)
+docs/manual/*.pdf
