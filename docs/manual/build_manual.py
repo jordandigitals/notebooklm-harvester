@@ -857,7 +857,7 @@ def build():
         head="Putting it on the phone's home screen (Android, tested)",
     )
     S += side_by_side(
-        ("android-home-screen-icon", "The Harvester icon on the home screen.", PHONE, (0.0, 0.6, 1.0, 0.86)),
+        ("android-home-screen-icon", "The Harvester icon on the home screen.", PHONE, None),
         ("android-opened-from-icon", "Tapping it opens the paired page (in a Chrome tab).", PHONE, None),
     )
     S += box(
