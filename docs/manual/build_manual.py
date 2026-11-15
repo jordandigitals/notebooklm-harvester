@@ -40,7 +40,23 @@ from nlh import __version__ as APP_VERSION  # noqa: E402
 
 MANUAL_VERSION = "v2"
 BUILT = date.today().strftime("%d %b %Y").lstrip("0")
-OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else HERE / "NotebookLM-Harvester-Manual.pdf"
+# Two editions from one source: "full" (the owner's copy, as before) and "public" (for the GitHub release:
+# no owner-specific content such as other-account mentions, other people's PCs, pending items or
+# personal status). Usage: python -m docs.manual.build_manual [--public] [out.pdf]
+_args = [a for a in sys.argv[1:] if a != "--public"]
+PUBLIC = "--public" in sys.argv[1:]
+EDITION = "public" if PUBLIC else "full"
+OUT = (
+    Path(_args[0])
+    if _args
+    else HERE / ("NotebookLM-Harvester-Manual-public.pdf" if PUBLIC else "NotebookLM-Harvester-Manual.pdf")
+)
+
+
+def ed(full, public):
+    """The full edition's text, or the public edition's text (None leaves it out)."""
+    return public if PUBLIC else full
+
 
 BLUE = colors.HexColor("#1d5bb8")
 MARK = colors.HexColor("#e8590c")
@@ -260,7 +276,7 @@ def footer(canvas, doc):
     canvas.drawString(
         inch,
         0.55 * inch,
-        f"NotebookLM Harvester manual  |  app {APP_VERSION}  |  manual {MANUAL_VERSION}, {BUILT}",
+        f"NotebookLM Harvester manual ({EDITION} edition)  |  app {APP_VERSION}  |  manual {MANUAL_VERSION}, {BUILT}",
     )
     canvas.drawRightString(letter[0] - inch, 0.55 * inch, "Page %d" % doc.page)
     canvas.restoreState()
@@ -284,7 +300,7 @@ def build():
     S += table(
         [
             ["App version", APP_VERSION + " (Mac and Windows packages)"],
-            ["Manual version", f"{MANUAL_VERSION}, made {BUILT} from the app itself"],
+            ["Manual version", f"{MANUAL_VERSION} ({EDITION} edition), made {BUILT} from the app itself"],
             [
                 "Runs on",
                 "Mac (Intel) and Windows 11, as a page in your browser served by the app on your laptop",
@@ -300,7 +316,7 @@ def build():
         "About the pictures",
     )
     S += box(
-        "Anything not yet tested live on your own devices is marked <b>untested</b>. Nothing here is shown as working unless it was checked.",
+        "Anything not yet tested live is marked <b>untested</b>. Nothing here is shown as working unless it was checked.",
         "Honesty",
     )
     S.append(PageBreak())
@@ -372,7 +388,7 @@ def build():
     S += [P("What it is not", h2)]
     S += bullets(
         [
-            "Not part of any other tool: no shared code, accounts or server.",
+            *([] if PUBLIC else ["Not part of any other tool: no shared code, accounts or server."]),
             "Not a cloud service or a phone app. It runs on your laptop. No tracking of any kind.",
             "Not a way around Google's limits. It uses your own account for your own content.",
             "It never deletes, renames, edits or regenerates anything in NotebookLM. The only two things it ever writes there are a chat question and an audio overview you approved in Studio (Section 8).",
@@ -389,7 +405,10 @@ def build():
     S += [P("2. Installing and starting", h1)]
     S += [
         P(
-            "Each laptop gets its own copy and its own sign-in. Sign-ins are never copied between computers."
+            ed(
+                "Each laptop gets its own copy and its own sign-in. Sign-ins are never copied between computers.",
+                "Each computer gets its own copy and its own sign-in. Sign-ins are never copied between computers.",
+            )
         )
     ]
     S += [P("Mac", h2)]
@@ -427,7 +446,10 @@ def build():
     S += wrong(
         "Windows Defender may report the Chrome sign-in reader as a threat the first time (it reads Chrome's saved Google sign-in on this computer). "
         "To allow it: Windows Security, Virus and threat protection, Protection history, select the entry, Actions, <b>Allow on device</b>. "
-        "On a clean PC (one that has never run the app) this is <b>untested</b>."
+        + ed(
+            "On a clean PC (one that has never run the app) this is <b>untested</b>.",
+            "On a PC that has never run the app this is <b>untested</b>.",
+        )
     )
     S += [P("Your data on disk", h2)]
     S += [
@@ -492,7 +514,10 @@ def build():
         'Never sign in two accounts at the same moment. On Windows a very deep folder is refused with "This folder path is too long for Windows. Pick a shorter output folder."'
     )
     S += box(
-        'If another tool also uses one of your accounts, see below. In Settings you can tick "used by other automated tools" for an account; Studio then warns you when you pick it, and Studio never picks an account for you.',
+        ed(
+            'If another tool also uses one of your accounts, see below. In Settings you can tick "used by other automated tools" for an account; Studio then warns you when you pick it, and Studio never picks an account for you.',
+            'If another tool also uses one of your accounts, tick "used by other automated tools" for it in Settings; Studio then warns you when you pick it, and Studio never picks an account for you.',
+        ),
         "Accounts used by other tools",
     )
     S.append(PageBreak())
@@ -809,7 +834,10 @@ def build():
         ]
     )
     S += box(
-        "A view-only share was checked live on 14 November (listed, one overview, downloaded). An editor share is <b>untested</b>; it does not change harvesting.",
+        ed(
+            "A view-only share was checked live on 14 November (listed, one overview, downloaded). An editor share is <b>untested</b>; it does not change harvesting.",
+            "A view-only share was checked live (listed, one overview, downloaded). An editor share is <b>untested</b>; it does not change harvesting.",
+        ),
         "Tested",
     )
     S.append(PageBreak())
@@ -857,7 +885,12 @@ def build():
         head="Putting it on the phone's home screen (Android, tested)",
     )
     S += side_by_side(
-        ("android-home-screen-icon", "The Harvester icon on the home screen.", PHONE, None),
+        (
+            "android-home-screen-icon",
+            "The Harvester icon on the home screen.",
+            PHONE,
+            ed(None, (0.27, 0.0, 0.53, 0.72)),
+        ),
         ("android-opened-from-icon", "Tapping it opens the paired page (in a Chrome tab).", PHONE, None),
     )
     S += box(
@@ -942,7 +975,10 @@ def build():
         [
             ["Part", "State on %s" % BUILT],
             ["Harvester (Library, History, Stats, Settings)", "Done, Mac and Windows"],
-            ["Studio (plan, generate, save)", "Done, checked live"],
+            [
+                "Studio (plan, generate, save)",
+                ed("Done, checked live", "Done, checked live"),
+            ],
             ["Phone listening and home-screen shortcut", "Done, checked live on an Android phone"],
             ["Shared with me", "Done, view-only share checked live"],
         ],
@@ -954,16 +990,20 @@ def build():
             "iPhone: Add to Home Screen, play, and audio with the screen locked.",
             "An editor share (a notebook shared with you with edit rights).",
             "How long an own-window sign-in lasts untouched (measured before watch mode is built).",
-            "Windows Defender and SmartScreen on a clean PC (one that has never run the app).",
+            ed(
+                "Windows Defender and SmartScreen on a clean PC (one that has never run the app).",
+                "Windows Defender and SmartScreen on a PC that has never run the app.",
+            ),
         ]
     )
-    S += [P("Waiting on you", h2)]
-    S += bullets(
-        [
-            "A short check on the Mac: open the app, search, harvest one new overview and play it; in Settings, Phone, pair with the QR and play one of your own overviews with the screen locked; in Studio, ask one notebook for a plan, make one overview and play it.",
-            "On Windows, the same phone steps, choosing Allow on the firewall prompt.",
-        ]
-    )
+    if not PUBLIC:  # owner's pending items stay out of the public edition
+        S += [P("Waiting on you", h2)]
+        S += bullets(
+            [
+                "A short check on the Mac: open the app, search, harvest one new overview and play it; in Settings, Phone, pair with the QR and play one of your own overviews with the screen locked; in Studio, ask one notebook for a plan, make one overview and play it.",
+                "On Windows, the same phone steps, choosing Allow on the firewall prompt.",
+            ]
+        )
     S += [P("What comes next", h2)]
     S += bullets(
         [
@@ -1016,13 +1056,19 @@ def build():
             ["Studio row says Check needed", "Press Check NotebookLM. It looks without writing anything."],
             [
                 "Nothing works after a long time",
-                "Google may have changed something the library relies on. Report it and include Settings, Diagnostics.",
+                ed(
+                    "Google may have changed something the library relies on. Report it and include Settings, Diagnostics.",
+                    "Google may have changed something the library relies on. Open an issue on the GitHub repository and include Settings, Diagnostics.",
+                ),
             ],
         ],
         [2.4, 4.1],
     )
     S += box(
-        "Describe the problem in a GitHub issue. Settings, Diagnostics gives facts that are safe to share.",
+        ed(
+            "Describe the problem in a GitHub issue. Settings, Diagnostics gives facts that are safe to share.",
+            "Open an issue on the GitHub repository (jordandigitals/notebooklm-harvester). Settings, Diagnostics gives facts that are safe to share.",
+        ),
         "Getting help",
     )
     S.append(PageBreak())
@@ -1058,9 +1104,24 @@ def build():
     S += table(
         [
             ["What", "Where"],
-            ["Packages and this manual", "(the owner's private folder)"],
-            ["Code and the manual's source", "GitHub, jordandigitals/notebooklm-harvester (docs/manual)"],
-            ["Project notes and decisions", "Google Drive, projects / notebooklm-harvester"],
+            *(
+                [
+                    ["This manual", "GitHub, jordandigitals/notebooklm-harvester, Releases"],
+                    [
+                        "Code and the manual's source",
+                        "GitHub, jordandigitals/notebooklm-harvester (docs/manual)",
+                    ],
+                ]
+                if PUBLIC
+                else [
+                    ["Packages and this manual", "(the owner's private folder)"],
+                    [
+                        "Code and the manual's source",
+                        "GitHub, jordandigitals/notebooklm-harvester (docs/manual)",
+                    ],
+                    ["Project notes and decisions", "Google Drive, projects / notebooklm-harvester"],
+                ]
+            ),
         ],
         [2.4, 4.1],
     )

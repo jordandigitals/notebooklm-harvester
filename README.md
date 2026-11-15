@@ -6,6 +6,7 @@ It is read-only toward NotebookLM: it lists notebooks and downloads audio. The o
 
 Built on the unofficial [notebooklm-py](https://github.com/teng-lin/notebooklm-py) library (pinned to 0.8.2). Saved Google sessions stay in the user's app data folder and are never committed.
 
+- Manual with pictures (PDF): [NotebookLM-Harvester-Manual.pdf](https://github.com/jordandigitals/notebooklm-harvester/releases/latest/download/NotebookLM-Harvester-Manual.pdf), attached to each [release](https://github.com/jordandigitals/notebooklm-harvester/releases)
 - Install and use: [INSTALL.md](INSTALL.md)
 - Start: `run-mac.command` or `run-windows.bat`
 - Command line (for checks): `python -m nlh --help`
