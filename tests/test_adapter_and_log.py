@@ -665,3 +665,25 @@ def test_load_error_keeps_only_class_and_net_code():
     exc = RuntimeError(f"net::ERR_NAME_NOT_RESOLVED at {_SIGNIN} for someone@example.com")
     assert adapter._load_error(exc) == "RuntimeError net::ERR_NAME_NOT_RESOLVED"
     assert adapter._load_error(TimeoutError("Timeout 30000ms exceeded. navigating to x")) == "TimeoutError"
+
+
+def test_no_message_when_the_browser_reached_google_itself(home, monkeypatch):
+    """Both tries 'fail' (the retry cut short as aborted) but the window is on Google's page: say nothing."""
+
+    class _AbortedButLoaded(_FlakyPage):
+        def goto(self, url, **kw):
+            if "accounts.google.com" in url:
+                self.tries += 1
+                self.url = "https://accounts.google.com/v3/signin/identifier"  # the browser got there
+                raise RuntimeError("net::ERR_ABORTED")
+            super().goto(url, **kw)
+
+    page = _AbortedButLoaded(fails=99)
+    _fake_playwright(monkeypatch, _LaterSignIn(page, signed_after=3))
+    notes = []
+    adapter.set_signin_note(notes.append)
+    try:
+        adapter._google_signin_window("acct-x", 30)
+    finally:
+        adapter.set_signin_note(None)
+    assert page.tries == 2 and notes == []

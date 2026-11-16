@@ -965,7 +965,11 @@ def _google_signin_window(profile_name: str, timeout_s: int, channel: str = "chr
             if not _first_load(page) and ctx.pages:
                 # Both tries failed but the window is still open: keep waiting (the person can
                 # press reload; the cookie check below still ends the wait once signed in).
-                _note(PAGE_DID_NOT_LOAD)
+                # The browser may have started loading Google's page itself (a retry cut short as
+                # "aborted"), so the person is told only if the window is still not on it.
+                time.sleep(1)
+                if not any(urlparse(pg.url).hostname == "accounts.google.com" for pg in list(ctx.pages)):
+                    _note(PAGE_DID_NOT_LOAD)
             while time.monotonic() < deadline:
                 pages = list(ctx.pages)  # one snapshot: tabs can close between reads
                 if not pages:
