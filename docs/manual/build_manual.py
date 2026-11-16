@@ -525,7 +525,7 @@ def build():
             [
                 "Use a Chrome profile instead",
                 "A Chrome profile signed in to the account",
-                "Quick. A sign-in copied from Chrome can go stale within hours while Chrome stays open; the account then says Sign in again.",
+                "Quick. A sign-in copied from Chrome can go stale within hours while Chrome stays open; the account then says Sign in again, which moves it to the Google window (Continue with Google).",
             ],
         ],
         [1.7, 1.5, 3.3],
@@ -1067,7 +1067,7 @@ def build():
             ["You see", "Try this"],
             [
                 "Account says Sign in again, or the list is empty",
-                "Press Sign in again, then Refresh notebooks. For an account added from Chrome, adding it again with Continue with Google lasts longer.",
+                "Press Sign in again (it opens the Google window, also for accounts added from Chrome), then Refresh notebooks.",
             ],
             [
                 "A new overview is not listed",

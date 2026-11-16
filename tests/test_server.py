@@ -332,3 +332,14 @@ def test_continue_with_google_starts_a_job_with_a_browser(client, ledger, monkey
     assert r.status_code == 200
     job = _wait(c, r.get_json()["id"])
     assert job["state"] == "done" and any("Google window" in ln for ln in job["lines"])
+
+
+def test_sign_in_again_on_chrome_account_without_a_browser_says_so(client, ledger, monkeypatch):
+    """Chat ruling 2026-11-16: a Chrome account moves to the own window; with no Chrome or Edge, say so."""
+    monkeypatch.setattr(adapter, "interactive_available", lambda: True)
+    monkeypatch.setattr(adapter, "signin_browser", lambda: None)
+    monkeypatch.setattr(adapter, "login_from_chrome", lambda *a, **k: pytest.fail("Chrome re-read"))
+    acct = ledger.add_account("p1", "One", "one@example.com", "Profile 2")
+    _, c = client
+    r = c.post(f"/api/accounts/{acct.id}/signin", headers=H)
+    assert r.status_code == 400 and r.get_json()["error"] == adapter.NO_BROWSER_MESSAGE

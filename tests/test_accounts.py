@@ -205,7 +205,26 @@ def test_own_signin_with_wrong_google_account_is_refused(ledger, fake, monkeypat
     assert ledger.account(acct.id).chrome_profile == "Profile 2"
 
 
-def test_mac_sign_in_again_still_rereads_chrome(ledger, fake, monkeypatch):
+def test_mac_sign_in_again_moves_chrome_account_to_own_window(ledger, fake, monkeypatch):
+    """Chat ruling 2026-11-16: on the Mac too, Sign in again on a Chrome account opens the own window."""
+    acct, _ = accounts.add_from_chrome(ledger, "Profile 2")
+    monkeypatch.setattr(paths, "is_windows", lambda: False)
+    monkeypatch.setattr(adapter, "interactive_available", lambda: True)
+    windows = []
+
+    def own_window(name, timeout_s=300):
+        windows.append(name)
+        return SessionStatus("ok", "Signed in.", "j@example.com")
+
+    monkeypatch.setattr(adapter, "login_interactive", own_window)
+    before = fake["chrome_logins"]
+    assert accounts.sign_in_again(ledger, ledger.account(acct.id)).ok
+    assert fake["chrome_logins"] == before and windows == [acct.profile_name]
+    assert ledger.account(acct.id).chrome_profile is None  # now signed in on its own
+
+
+def test_sign_in_again_without_the_window_still_rereads_chrome(ledger, fake, monkeypatch):
+    """A copy of the app without the sign-in window keeps the Chrome re-read."""
     acct, _ = accounts.add_from_chrome(ledger, "Profile 2")
     monkeypatch.setattr(paths, "is_windows", lambda: False)
     before = fake["chrome_logins"]

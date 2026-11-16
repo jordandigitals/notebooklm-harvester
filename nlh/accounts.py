@@ -161,15 +161,16 @@ def check(ledger: Ledger, acct: Account, *, reread_chrome: bool = True) -> Sessi
 
 
 def uses_own_signin(acct: Account) -> bool:
-    """True when Sign in again opens the app's own Chrome window for this account.
+    """True when Sign in again opens the app's own Google window for this account.
 
-    Always for accounts signed in directly. On Windows also for accounts copied from
-    Chrome (D-022): re-reading Chrome there needs Chrome fully closed every time, and the
-    copy goes stale while Chrome runs, so the account moves to its own sign-in instead.
+    Always for accounts signed in directly. Also for accounts copied from Chrome, on Mac and
+    Windows alike (D-022 on Windows, Chat ruling 2026-11-16 on the Mac): a Chrome copy goes
+    stale while Chrome runs, so the account moves to its own sign-in, which lasts longer.
+    Only a copy of the app without the sign-in window keeps re-reading Chrome.
     """
     if not acct.chrome_profile:
         return True
-    return paths.is_windows() and adapter.interactive_available()
+    return adapter.interactive_available()
 
 
 def sign_in_again(ledger: Ledger, acct: Account) -> SessionStatus:
