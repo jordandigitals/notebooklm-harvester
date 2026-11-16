@@ -567,3 +567,8 @@ body.has-player.has-selection .backtop { bottom: 220px; }
 @media (min-width: 1024px) {
   body.has-player .content > .actionbar { bottom: 0; }
 }
+/* phones: the harvest line stacks (title and state, then the counts, then the buttons) */
+@media (max-width: 520px) {
+  .job-sum { flex-basis: 100%; }
+  .job-actions { flex: 1 0 100%; justify-content: flex-end; margin-left: 0; }
+}

@@ -67,8 +67,16 @@ def open_lib(browser, server, width=1280, height=720, scheme="light", touch=Fals
 
 
 def scroll_to(page, y):
+    """Scroll the column and wait until the list has redrawn the rows for that place."""
     page.evaluate(f"{SC}.scrollTop = {y}")
-    page.wait_for_timeout(150)
+    page.wait_for_function(
+        f"""() => {{ const sc = {SC}, l = document.getElementById('vlist').getBoundingClientRect();
+        if (l.top > innerHeight || !document.querySelector('#vspacer .vrow')) return true;
+        return [...document.querySelectorAll('#vspacer .vrow')].some(r => {{
+          const b = r.getBoundingClientRect(); return b.bottom > 0 && b.top < innerHeight; }}); }}""",
+        timeout=10000,
+    )
+    page.wait_for_timeout(100)
 
 
 def pinned_bottom(page):
@@ -289,6 +297,31 @@ def test_phone_width_pins_nothing_and_still_scrolls(browser, server):
     assert page.evaluate(f"getComputedStyle({TB}).position") != "sticky"
     assert page.evaluate("window.__nlhTest.renderedRowCount()") > 3
     assert not page.evaluate("document.documentElement.scrollWidth > window.innerWidth")
+    # the column scrolls by itself, so check it too: nothing wider than the column (a clipped button)
+    assert page.evaluate(f"{SC}.scrollWidth <= {SC}.clientWidth + 1")
+    page.context.close()
+
+
+@pytest.mark.parametrize("width", [320, 375])
+def test_phone_harvest_line_buttons_fit(browser, server, width):
+    """The finished harvest line on a phone: every button inside the card, nothing clipped."""
+    page = open_lib(browser, server, width=width, height=700, touch=True)
+    # Earlier tests harvest every New row of the first account: pick from all accounts instead.
+    page.click("[data-scope=all]")
+    page.wait_for_timeout(300)
+    boxes = page.locator("#vlist input[type=checkbox]")
+    for i in range(2):
+        boxes.nth(i).click()
+    page.click("#sel-harvest")
+    page.locator("#job-box button:has-text('Clear finished')").wait_for(timeout=120000)
+    card = page.locator("#job-box section.job").bounding_box()
+    for b in page.locator("#job-box section.job button").all():
+        if b.is_visible():
+            r = b.bounding_box()
+            inside = r["x"] >= card["x"] - 1 and r["x"] + r["width"] <= card["x"] + card["width"] + 1
+            assert inside, b.inner_text()
+    assert page.evaluate(f"{SC}.scrollWidth <= {SC}.clientWidth + 1")
+    page.locator("#job-box button:has-text('Clear finished')").click()
     page.context.close()
 
 
@@ -309,6 +342,8 @@ def test_library_axe_clean_with_card_and_job(browser, server, width, scheme):
     ]
     assert bad == []
     assert not page.evaluate("document.documentElement.scrollWidth > window.innerWidth")
+    # the column scrolls by itself, so check it too: nothing wider than the column (a clipped button)
+    assert page.evaluate(f"{SC}.scrollWidth <= {SC}.clientWidth + 1")
     toggle.click()
     page.context.close()
 
