@@ -31,13 +31,16 @@ FAST = {"NLH_DEMO_ASK_S": "0.4", "NLH_DEMO_GEN_S": "3", "NLH_DEMO_POLL_S": "0.4"
 MARK_JS = """
 (items) => {
   document.querySelectorAll('.manual-mark').forEach(e => e.remove());
+  // An open modal dialog sits in the browser's top layer, above everything in the page, so
+  // marks for it must live inside it to be seen.
+  const host = document.querySelector('dialog[open]') || document.body;
   for (const [r, n, side] of items) {
     const box = document.createElement('div');
     box.className = 'manual-mark';
     Object.assign(box.style, {position: 'fixed', left: (r.x - 4) + 'px', top: (r.y - 4) + 'px',
       width: (r.width + 8) + 'px', height: (r.height + 8) + 'px', border: '3px solid MARK',
       borderRadius: '8px', zIndex: 99998, pointerEvents: 'none', boxSizing: 'border-box'});
-    document.body.appendChild(box);
+    host.appendChild(box);
     if (!n) continue;
     const c = document.createElement('div');
     c.className = 'manual-mark';
@@ -54,7 +57,7 @@ MARK_JS = """
       height: size + 'px', borderRadius: '50%', background: 'MARK', color: '#fff',
       font: '700 16px/28px -apple-system, system-ui, sans-serif', textAlign: 'center', zIndex: 99999,
       boxShadow: '0 1px 4px rgba(0,0,0,.35)', pointerEvents: 'none'});
-    document.body.appendChild(c);
+    host.appendChild(c);
   }
 }
 """.replace("MARK", MARK)
@@ -156,7 +159,9 @@ def run():
     os.environ.update(FAST)
     os.environ["HOME"] = fake_home  # the folder picker's "home" is synthetic too
     try:
-        with DemoServer(rows=400) as srv, sync_playwright() as p:
+        # A short demo home so folder paths in the pictures stay readable (made up, no user name).
+        demo_home = tempfile.mkdtemp(prefix="Harvester-", dir="/tmp" if os.path.isdir("/tmp") else None)
+        with DemoServer(rows=400, home=demo_home) as srv, sync_playwright() as p:
             b = p.chromium.launch(
                 channel="chrome", headless=True, args=["--use-mock-keychain", "--password-store=basic"]
             )
@@ -225,10 +230,33 @@ def capture(s: Shots):
         ],
         crop=["#account-card"],
     )
+    pg.context.close()
+
+    # The picker is tall (remembered folders, browser, notice): a tall window keeps it whole.
+    pg = s.page(height=1700, ready="#vspacer .vrow")
+    pg.locator("#acct-list .acct").first.click()
+    pg.wait_for_selector("#account-card button", timeout=20000)
+    if pg.locator("#account-card .card-toggle").get_attribute("aria-expanded") != "true":
+        pg.click("#account-card .card-toggle")
     pg.locator("#account-card button:has-text('Choose folder')").click()
-    pg.wait_for_selector("#dlg[open]", timeout=20000)
-    pg.wait_for_timeout(600)
-    s.save(pg, "04-choose-folder", marks=[("#dlg .btn-primary", 1, "left")], crop=["#dlg"])
+    pg.wait_for_selector("#dlg[open] .recent-list li", timeout=20000)
+    # D-033: remembered folders on top; browsing to another account's folder shows the notice.
+    home_dir = next(f["path"] for f in s.srv.api("/api/folders") if f["path"].endswith("Home"))
+    pg.fill("#dlg input[aria-label='Folder path']", home_dir)
+    pg.click("#dlg button:has-text('Go')")
+    pg.wait_for_selector("#dlg .notice:not(.is-hidden)", timeout=20000)
+    pg.wait_for_timeout(400)
+    s.save(
+        pg,
+        "04-choose-folder",
+        marks=[
+            ("#dlg .recent-list li:not(.is-missing) button:has-text('Use')", 1, "left"),
+            ("#dlg .recent-list button:has-text('Forget')", 2, "right"),
+            ("#dlg .notice", 3, "inside"),
+            ("#dlg .btn-primary", 4, "top"),
+        ],
+        crop=["#dlg"],
+    )
     pg.context.close()
 
     # ---------------- library

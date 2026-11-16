@@ -142,9 +142,29 @@ export function renderAccountCard() {
   folder.append(check);
   more.append(folder);
   card.append(more);
-  if (needsFolder) card.append(notice("info", "Choose a folder before harvesting. Any folder works, including one synced by Google Drive, MEGA or OneDrive."));
+  if (needsFolder) {
+    card.append(notice("info", "Choose a folder before harvesting. Any folder works, including one synced by Google Drive, MEGA or OneDrive."));
+    if (!a.output_dir) addQuickPicks(card, a);
+  }
   if (a.long_folder) card.append(notice("warn", "This folder path is long for Windows. Titles are shortened automatically; a much deeper folder would be refused."));
   box.append(card);
+}
+
+/** Up to three remembered folders as one-click picks for an account without a folder (D-033).
+ * Nothing is assigned until one is pressed. */
+async function addQuickPicks(card, a) {
+  const folders = (await rememberedFolders()).filter((f) => f.available).slice(0, 3);
+  if (!folders.length) return;
+  const row = el("div", "row quick-picks");
+  row.append(el("span", "hint", "Recent folders:"));
+  for (const f of folders) {
+    const b = button(`Use ${middlePath(f.path, 28)}`, { cls: "btn btn-sm" });
+    b.title = f.path;
+    b.setAttribute("aria-label", `Use ${f.path}`);
+    b.addEventListener("click", () => setAccountFolder(a, f.path));
+    row.append(b);
+  }
+  card.append(row);
 }
 
 /** The last two folders of a path, for the compact card ("...\Notebook Harvester\Work"). */
@@ -258,21 +278,81 @@ export function adjustAddPanel() {
 
 // ------------------------------------------------------------ folder picker
 
-/** Choose an output folder for an account (starts at its folder or the default suggestion). */
-export async function openPicker(account) {
-  const start = account.output_dir || acctState.defaultOutput || "";
-  const chosen = await openFolderPicker(start);
-  if (!chosen) return;
+/** The plain notice for a folder another account already saves to (D-033). */
+export function sharedNotice(names) {
+  return `Also used by ${names.join(", ")}. Files from both accounts are saved together; existing files are never overwritten.`;
+}
+
+/** Remembered folders (D-033), or an empty list when they cannot be read. */
+async function rememberedFolders() {
+  try { return await api("/api/folders"); } catch (e) { return []; }
+}
+
+/** Set an account's folder; says so when another account already uses it. */
+export async function setAccountFolder(account, chosen) {
   try {
-    await api(`/api/accounts/${account.id}/output`, { method: "POST", body: { path: chosen } });
-    toast("Folder saved.");
+    const r = await api(`/api/accounts/${account.id}/output`, { method: "POST", body: { path: chosen } });
+    toast(r.also_used_by && r.also_used_by.length ? `Folder saved. ${sharedNotice(r.also_used_by)}` : "Folder saved.", "ok", 7000);
     document.dispatchEvent(new CustomEvent("nlh:reload"));
   } catch (e) { toast(e.message, "bad"); }
 }
 
-/** The folder picker dialog: browse, type a path, make a new folder. Resolves to a path or null. */
-export async function openFolderPicker(startPath = "") {
+/** Choose an output folder for an account: starts at its folder, else the most recent
+ * remembered folder that is there, else the suggested folder (D-033). */
+export async function openPicker(account) {
+  const recent = await rememberedFolders();
+  const lastHere = recent.find((f) => f.available);
+  const start = account.output_dir || (lastHere && lastHere.path) || acctState.defaultOutput || "";
+  const chosen = await openFolderPicker(start, { accountId: account.id, accountLabel: account.label, recent });
+  if (chosen) await setAccountFolder(account, chosen);
+}
+
+/** Shorten a long path in the middle for small screens; the full path stays in the title. */
+function middlePath(p, max = 42) {
+  return p.length <= max ? p : `${p.slice(0, 14)}...${p.slice(-(max - 17))}`;
+}
+
+/** The folder picker dialog: remembered folders, browse, type a path, make a new folder.
+ * Resolves to a path or null. With accountId, notes when another account uses the folder. */
+export async function openFolderPicker(startPath = "", { accountId = null, accountLabel = null, recent = null } = {}) {
   const body = el("div", "filters");
+  const recentBox = el("div", "recent-folders");
+  const recentList = el("ul", "recent-list");
+  const drawRecent = (folders) => {
+    recentList.replaceChildren();
+    show(recentBox, folders.length > 0);
+    for (const f of folders) {
+      const li = el("li", f.available ? "" : "is-missing");
+      const name = el("code", "", middlePath(f.path));
+      name.title = f.path;
+      li.append(name);
+      const others = (f.used_by || []).filter((label) => label !== accountLabel);
+      if (others.length) li.append(el("span", "hint used-by", `Used by ${others.join(", ")}`));
+      if (f.available) {
+        const use = button("Use", { cls: "btn btn-sm" });
+        use.setAttribute("aria-label", `Use ${f.path}`);
+        use.addEventListener("click", async () => {
+          await browse(f.path);
+          $("dlg").querySelector(".dlg-actions .btn-primary").click();
+        });
+        li.append(use);
+      } else {
+        li.append(el("span", "hint", "Not available"));
+      }
+      const forget = button("Forget", { cls: "btn btn-sm btn-ghost" });
+      forget.setAttribute("aria-label", `Forget ${f.path}`);
+      forget.title = "Remove from this list. Nothing on disk is changed.";
+      forget.addEventListener("click", async () => {
+        try {
+          await api("/api/folders/forget", { method: "POST", body: { path: f.path } });
+          drawRecent(folders.filter((x) => x !== f));
+        } catch (e) { err.textContent = e.message; }
+      });
+      li.append(forget);
+      recentList.append(li);
+    }
+  };
+  recentBox.append(el("h3", "", "Recent folders"), recentList);
   const pathRow = el("div", "row");
   const path = el("input", "input grow");
   path.setAttribute("aria-label", "Folder path");
@@ -285,13 +365,19 @@ export async function openFolderPicker(startPath = "") {
   nav.append(up, home, mk);
   const list = el("ul", "picker-list");
   const err = el("p", "error");
-  body.append(pathRow, nav, list, err);
+  const shared = el("p", "notice notice-info is-hidden");
+  shared.setAttribute("role", "status");
+  body.append(recentBox, pathRow, nav, list, shared, err);
   let parent = null;
   const browse = async (p) => {
     try {
-      const d = await api(`/api/browse?path=${encodeURIComponent(p)}`);
+      const q = accountId !== null ? `&account=${accountId}` : "";
+      const d = await api(`/api/browse?path=${encodeURIComponent(p)}${q}`);
       path.value = d.path;
       parent = d.parent;
+      const others = d.used_by || [];
+      shared.textContent = others.length ? sharedNotice(others) : "";
+      show(shared, others.length > 0);
       up.disabled = d.parent === null;
       mk.disabled = !d.path;
       err.textContent = "";
@@ -331,6 +417,7 @@ export async function openFolderPicker(startPath = "") {
     ok.addEventListener("click", create);
     input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); create(); } });
   });
+  drawRecent(recent || await rememberedFolders());
   await browse(startPath);
   const choice = await dialog({ title: "Choose a folder", body, actions: [{ label: "Cancel", value: null }, { label: "Use this folder", value: "use", primary: true }] });
   return choice === "use" ? path.value : null;

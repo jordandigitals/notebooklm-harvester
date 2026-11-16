@@ -223,6 +223,13 @@ def seed(ledger, rows: list[DemoRow] | None = None) -> None:
             acct.id, output_dir=str(outputs[i]), last_status="ok" if i != 1 else "needs_sign_in"
         )
         accts.append(acct)
+    # Remembered folders (D-033): the demo folders plus a made-up shared one; the unplugged
+    # drive shows as unavailable.
+    from nlh import settings as app_settings
+
+    shared = home / "demo-output" / "Shared library"
+    shared.mkdir(parents=True, exist_ok=True)
+    app_settings.save({"recent_folders": [str(outputs[0]), str(shared), str(outputs[1]), str(outputs[2])]})
     by_account: dict[int, dict[str, tuple]] = {}
     for r in rows:
         nbs = by_account.setdefault(r.account, {})

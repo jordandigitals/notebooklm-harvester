@@ -553,9 +553,20 @@ def build():
     )
     S += pic(
         "04-choose-folder",
-        "The folder picker: go up a level, Home, New folder, then <b>Use this folder</b>.",
+        "The folder picker: (1) Use a recent folder, (2) Forget it, (3) the note when another account saves there, (4) Use this folder.",
         width=0.62,
-        max_h=2.5,
+        max_h=4.2,
+    )
+    S += steps(
+        [
+            "<b>Recent folders</b> at the top lists the folders you chose before on this computer, newest first. <b>Use</b> picks one in one click. A folder that is not there now (an unplugged drive, an offline synced folder) says <b>Not available</b>; the app never creates it.",
+            "<b>Forget</b> only takes a folder off the list. Nothing on disk changes.",
+            "Below the list you can browse, type a path, go up a level, go Home or make a <b>New folder</b>, then press <b>Use this folder</b>. The picker opens at the account's folder, or at the folder you chose last.",
+        ]
+    )
+    S += box(
+        "Several accounts can save into the same folder. The picker then says which other account already uses it: files from both accounts are saved together, and existing files are never overwritten (a second file with the same name gets (2) added). Scan folder only ever picks up an account's own files, recognised by the tag inside each MP3, never by the name. A new account is never given a folder by itself: its card offers your recent folders as one-click choices.",
+        "One folder for several accounts",
     )
     S += wrong(
         "The account says <b>Sign in again</b>: press it and sign in; your saved MP3s are not affected. "

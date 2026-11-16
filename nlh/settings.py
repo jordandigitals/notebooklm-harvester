@@ -83,9 +83,12 @@ DEFAULTS = {
     # Library layout (D-032): the account card's More part and the harvest Details stay as left.
     "account_card_open": False,
     "job_details_open": False,
+    # Remembered folders (D-033): chosen output folders, most recent first, per computer.
+    "recent_folders": [],
 }
 # Keys the server sets itself (the generic settings route refuses them).
-SERVER_ONLY = frozenset({"phone_enabled", "phone_port", "phone_address"})
+SERVER_ONLY = frozenset({"phone_enabled", "phone_port", "phone_address", "recent_folders"})
+RECENT_MAX = 10
 STUDIO_CAP_RANGE = (1, 20)
 STUDIO_PAUSE_RANGE = (30, 300)
 
@@ -217,6 +220,13 @@ def validate(update: dict) -> dict:
             value = _text(value, "The language", 12).strip()
             if not re.fullmatch(r"[A-Za-z]{2,3}(-[A-Za-z0-9]{2,4})?", value):
                 raise SettingsError("Use a language code such as en, fr or pt-BR.")
+        elif key == "recent_folders":
+            if (
+                not isinstance(value, list)
+                or len(value) > RECENT_MAX
+                or not all(isinstance(v, str) and 0 < len(v) <= MAX_TEXT for v in value)
+            ):
+                raise SettingsError("The list of remembered folders is not valid.")
         elif key == "views":
             if not isinstance(value, list) or len(value) > MAX_VIEWS:
                 raise SettingsError(f"At most {MAX_VIEWS} saved views.")
@@ -241,3 +251,29 @@ def save(update: dict) -> dict:
             os.chmod(tmp, 0o600)
         os.replace(tmp, target)
     return current
+
+
+def folder_key(path: str) -> str:
+    """A comparable form of a folder path: absolute with links resolved, normalised, and
+    case-folded on Mac and Windows (their usual file systems ignore case). Used to fold
+    duplicates and to tell when two accounts use the same folder (D-033)."""
+    key = os.path.normcase(os.path.realpath(os.path.expanduser(path))).rstrip("\\/") or os.sep
+    return key.casefold() if sys.platform in ("darwin", "win32") else key
+
+
+def remember_folder(path: str) -> list[str]:
+    """Put a chosen folder first in the remembered list (duplicates folded, at most RECENT_MAX)."""
+    path = str(path).strip()
+    if not path:
+        return load()["recent_folders"]
+    current = [p for p in load()["recent_folders"] if isinstance(p, str)]
+    key = folder_key(path)
+    kept = [path] + [p for p in current if folder_key(p) != key]
+    return save({"recent_folders": kept[:RECENT_MAX]})["recent_folders"]
+
+
+def forget_folder(path: str) -> list[str]:
+    """Remove a folder from the remembered list only (nothing on disk is touched)."""
+    key = folder_key(str(path))
+    current = [p for p in load()["recent_folders"] if isinstance(p, str)]
+    return save({"recent_folders": [p for p in current if folder_key(p) != key]})["recent_folders"]

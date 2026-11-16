@@ -575,3 +575,15 @@ body.has-player.has-selection .backtop { bottom: 220px; }
   .job-sum { flex-basis: 100%; }
   .job-actions { flex: 1 0 100%; justify-content: flex-end; margin-left: 0; }
 }
+
+/* Remembered folders in the folder picker (D-033) */
+.recent-folders { display: grid; gap: var(--s1); }
+.recent-folders h3 { margin: 0; font-size: 0.9rem; }
+.recent-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s1); }
+.recent-list li { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; padding: var(--s1) 0; border-bottom: 1px solid var(--line); }
+.recent-list li:last-child { border-bottom: 0; }
+.recent-list code { flex: 1 1 180px; min-width: 0; overflow-wrap: anywhere; font-family: var(--mono); font-size: 0.8rem; }
+.recent-list .used-by { flex-basis: 100%; order: 3; }
+.recent-list li.is-missing code { color: var(--muted); text-decoration: line-through; }
+.quick-picks { margin-top: var(--s2); }
+@media (max-width: 600px) { .recent-list code { flex-basis: 100%; } }

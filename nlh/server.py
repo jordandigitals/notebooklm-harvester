@@ -587,7 +587,36 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
             path = accounts.set_output_dir(led, get_account(account_id), str(body().get("path", "")))
         except accounts.AccountError as exc:
             return jsonify(error=str(exc)), 400
-        return jsonify(ok=True, path=str(path))
+        app_settings.remember_folder(str(path))  # D-033: remembered for one-click picks
+        return jsonify(ok=True, path=str(path), also_used_by=folder_users(str(path), account_id))
+
+    def folder_users(path: str, except_id: int | None = None) -> list[str]:
+        """Labels of the accounts (other than except_id) whose output folder is this folder."""
+        key = app_settings.folder_key(path)
+        return [
+            a.label
+            for a in led.accounts()
+            if a.id != except_id and a.output_dir and app_settings.folder_key(a.output_dir) == key
+        ]
+
+    @app.get("/api/folders")
+    def remembered_folders():
+        """Remembered folders (D-033): availability is checked now; missing ones are never created."""
+        return jsonify(
+            [
+                {"path": p, "available": Path(p).is_dir(), "used_by": folder_users(p)}
+                for p in app_settings.load()["recent_folders"]
+                if isinstance(p, str)
+            ]
+        )
+
+    @app.post("/api/folders/forget")
+    def forget_folder():
+        """Forget a remembered folder. Only the list changes; nothing on disk is touched."""
+        path = str(body().get("path", ""))
+        if not path:
+            return jsonify(error="No folder given."), 400
+        return jsonify(ok=True, folders=app_settings.forget_folder(path))
 
     # ------------------------------------------------------------ notebooks
 
@@ -949,9 +978,12 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
         if isinstance(data, dict) and set(data) & app_settings.SERVER_ONLY:
             return jsonify(error="Use Settings, Phone to change phone listening."), 400
         try:
-            return jsonify(app_settings.save(data))
+            saved = app_settings.save(data)
         except app_settings.SettingsError as exc:
             return jsonify(error=str(exc)), 400
+        if data.get("default_output"):  # the Suggested folder is remembered too (D-033)
+            saved = {**saved, "recent_folders": app_settings.remember_folder(data["default_output"])}
+        return jsonify(saved)
 
     # ------------------------------------------------------------ history and folders
 
@@ -1243,7 +1275,10 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
         except PermissionError:
             dirs = []
         parent = str(p.parent) if p.parent != p else ("" if sys.platform == "win32" else None)
-        return jsonify(path=str(p), parent=parent, dirs=dirs, home=str(Path.home()))
+        # D-033: which other accounts already save here (only when the picker is for an account).
+        account = request.args.get("account", type=int)
+        used_by = folder_users(str(p), account) if account else []
+        return jsonify(path=str(p), parent=parent, dirs=dirs, home=str(Path.home()), used_by=used_by)
 
     @app.post("/api/mkdir")
     def make_folder():
