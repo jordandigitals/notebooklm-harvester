@@ -172,9 +172,9 @@ def activate() -> Path | None:
 
 def _tone(dest: Path, seconds: float = 3.0) -> None:
     """A short generated tone as M4A (stands in for a downloaded overview)."""
-    from nlh import media
+    from nlh import media, procs
 
-    subprocess.run(
+    procs.run(
         [
             media.tool("ffmpeg"),
             "-nostdin",

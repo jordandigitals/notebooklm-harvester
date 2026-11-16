@@ -286,7 +286,12 @@ def harvest_one(
     except AdapterError as exc:
         return ItemResult(ov.artifact_id, ov.title, "failed", exc.message)
     except media.MediaError as exc:
-        log.warning("artifact %s media error: %s", ov.artifact_id, exc)
+        log.warning(
+            "artifact %s media error: %s%s",
+            ov.artifact_id,
+            exc,
+            f" ({exc.detail})" if getattr(exc, "detail", "") else "",
+        )
         return ItemResult(ov.artifact_id, ov.title, "failed", str(exc))
     except sqlite3.Error as exc:
         log.warning("artifact %s ledger error: %s", ov.artifact_id, exc)

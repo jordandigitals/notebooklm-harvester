@@ -28,7 +28,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from nlh import paths
+from nlh import paths, procs
 from nlh.log import get_logger
 
 log = get_logger()
@@ -100,12 +100,11 @@ def _windows_interface(addr: str) -> str | None:
         "$a = Get-NetAdapter -InterfaceIndex $i.InterfaceIndex -IncludeHidden -ErrorAction SilentlyContinue; "
         "Write-Output ($i.InterfaceAlias + '|' + $a.InterfaceDescription)"
     )
-    out = subprocess.run(
+    out = procs.run(
         ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
         capture_output=True,
         text=True,
         timeout=15,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     ).stdout.strip()
     name = out or None
     _WIN_IFACE_CACHE[addr] = name
@@ -118,7 +117,7 @@ def interface_of(addr: str) -> str | None:
         if sys.platform == "win32":
             return _windows_interface(addr)
         if sys.platform == "darwin":
-            out = subprocess.run(["ifconfig"], capture_output=True, text=True, timeout=5).stdout
+            out = procs.run(["ifconfig"], capture_output=True, text=True, timeout=5).stdout
             name = None
             for line in out.splitlines():
                 if line and not line[0].isspace():
@@ -126,7 +125,7 @@ def interface_of(addr: str) -> str | None:
                 elif f"inet {addr} " in line:
                     return name
         elif sys.platform.startswith("linux"):
-            out = subprocess.run(["ip", "-o", "-4", "addr"], capture_output=True, text=True, timeout=5).stdout
+            out = procs.run(["ip", "-o", "-4", "addr"], capture_output=True, text=True, timeout=5).stdout
             for line in out.splitlines():
                 parts = line.split()
                 if len(parts) > 3 and parts[3].split("/")[0] == addr:

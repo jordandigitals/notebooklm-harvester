@@ -16,7 +16,6 @@ import re
 import secrets
 import socket
 import string
-import subprocess
 import sys
 import threading
 import time
@@ -38,6 +37,7 @@ from nlh import (
     naming,
     paths,
     phone,
+    procs,
     studio_routes,
 )
 from nlh import settings as app_settings
@@ -1381,9 +1381,9 @@ def open_in_file_manager(path: Path) -> None:
     if sys.platform == "win32":
         os.startfile(str(path))  # noqa: S606
     elif sys.platform == "darwin":
-        subprocess.run(["open", str(path)], check=False)
+        procs.run(["open", str(path)], check=False)
     else:
-        subprocess.run(["xdg-open", str(path)], check=False)
+        procs.run(["xdg-open", str(path)], check=False)
 
 
 def _free_port() -> int:

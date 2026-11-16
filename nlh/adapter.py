@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from nlh import paths
+from nlh import paths, procs
 from nlh.log import get_logger, redact
 
 LIST_SPACING_S = 1.0
@@ -640,7 +640,7 @@ def _run_group(cmd: list[str], env: dict[str, str], timeout: int) -> subprocess.
         kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200)
     else:
         kwargs["start_new_session"] = True
-    proc = subprocess.Popen(
+    proc = procs.popen(
         cmd,
         env=env,
         stdin=subprocess.DEVNULL,
@@ -665,7 +665,7 @@ def _kill_group(proc: subprocess.Popen) -> None:
 
     try:
         if sys.platform == "win32":
-            subprocess.run(
+            procs.run(
                 ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,

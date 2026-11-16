@@ -432,7 +432,7 @@ def test_windows_vpn_address_is_not_used(monkeypatch):
 def test_windows_interface_lookup_refuses_non_addresses(monkeypatch):
     """Only a real IPv4 address ever reaches the PowerShell command."""
     ran = []
-    monkeypatch.setattr(phone.subprocess, "run", lambda *a, **k: ran.append(a))
+    monkeypatch.setattr(phone.procs, "run", lambda *a, **k: ran.append(a))
     phone._WIN_IFACE_CACHE.clear()
     assert phone._windows_interface("1.2.3.4'; Remove-Item x; '") is None
     assert ran == []

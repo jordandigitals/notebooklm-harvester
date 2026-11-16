@@ -7,15 +7,25 @@ import json
 import shutil
 import subprocess
 import sys
+import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+
+from nlh import procs
 
 DURATION_TOLERANCE_S = 0.5
 
 
 class MediaError(Exception):
-    """Conversion or verification failure, with a plain-language message."""
+    """Conversion or verification failure, with a plain-language message.
+
+    detail holds the tool's own last error line for the log (never shown on the page).
+    """
+
+    def __init__(self, message: str, detail: str = "") -> None:
+        super().__init__(message)
+        self.detail = detail
 
 
 @dataclass(frozen=True)
@@ -49,7 +59,7 @@ def tools_available() -> dict[str, bool]:
 
 def probe(path: Path) -> Probe:
     """Read container, codec, duration, channels, sample rate, bitrate and tags."""
-    proc = subprocess.run(
+    proc = procs.run(
         [
             tool("ffprobe"),
             "-v",
@@ -135,24 +145,30 @@ def convert_to_mp3(
         if value:
             cmd += ["-metadata", f"{key}={value}"]
     cmd += ["-progress", "pipe:1", "-nostats", "-f", "mp3", str(dst)]
-    proc = subprocess.Popen(
-        cmd,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        text=True,
-        encoding="utf-8",
-    )
-    for line in proc.stdout:
-        if on_progress and duration and line.startswith("out_time_us="):
-            try:
-                done = int(line.split("=", 1)[1]) / 1_000_000
-            except ValueError:
-                continue
-            on_progress(max(0.0, min(1.0, done / duration)))
-    proc.wait()
-    if proc.returncode != 0 or not dst.exists():
-        raise MediaError("Converting the audio to MP3 failed.")
+    # ffmpeg's errors go to a temporary file (not a pipe, which could fill and stall it
+    # while the progress pipe is read), so a failure can say why in the log.
+    with tempfile.TemporaryFile() as errfile:
+        proc = procs.popen(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=errfile,
+            text=True,
+            encoding="utf-8",
+        )
+        for line in proc.stdout:
+            if on_progress and duration and line.startswith("out_time_us="):
+                try:
+                    done = int(line.split("=", 1)[1]) / 1_000_000
+                except ValueError:
+                    continue
+                on_progress(max(0.0, min(1.0, done / duration)))
+        proc.wait()
+        if proc.returncode != 0 or not dst.exists():
+            errfile.seek(0)
+            lines = errfile.read().decode("utf-8", "replace").strip().splitlines()
+            detail = f"ffmpeg exit {proc.returncode}" + (f": {lines[-1][:300]}" if lines else "")
+            raise MediaError("Converting the audio to MP3 failed.", detail)
 
 
 def verify_mp3(path: Path, source_duration: float, tags: dict[str, str]) -> Probe:
