@@ -467,11 +467,17 @@ def build():
             "You can add as many Google accounts as you like. Each needs a saved Google sign-in and an output folder."
         )
     ]
-    S += pic("02-add-account", "Adding an account from a Chrome profile.", width=0.62, max_h=4.6)
+    S += pic(
+        "02-add-account",
+        "Adding an account: (1) Add account, (2) Add next to a Chrome profile, (3) Refresh the list, (4) Sign in (Windows).",
+        width=0.62,
+        max_h=4.6,
+    )
     S += steps(
         [
             "Press <b>Add account</b>.",
-            "Under <b>From a Chrome profile</b>, press <b>Add</b> next to the profile signed in to the Google account with your notebooks. Profiles already added say <b>Added</b>.",
+            "Under <b>From a Chrome profile</b>, the app lists the Chrome profiles on this computer, each with its email and profile name. Press <b>Add</b> next to the one signed in to the Google account with your notebooks. Profiles already added say <b>Added</b>.",
+            "Signed in to a new profile in Chrome just now? Press <b>Refresh</b> to read the list again. If none is listed, sign in to Google in Chrome first.",
             "Windows only: <b>Sign in to Google</b> opens the app's own sign-in window instead. Type a name if you like and press <b>Sign in</b>.",
         ]
     )
@@ -490,6 +496,11 @@ def build():
             ],
         ],
         [1.6, 1.3, 3.6],
+    )
+    S += wrong(
+        '"Chrome is open, so its sign-in cannot be read" (Windows): quit Chrome completely, also its icon near the clock, then press Add again. '
+        '"...is signed out or has expired": open Chrome in that profile, sign in to NotebookLM again, quit Chrome, then try again. '
+        "On a Mac, choose <b>Always Allow</b> when macOS asks for Chrome Safe Storage."
     )
     S += pic(
         "03-account-card",

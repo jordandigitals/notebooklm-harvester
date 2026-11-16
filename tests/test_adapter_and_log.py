@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import subprocess
 from types import SimpleNamespace
 
 import pytest
@@ -400,3 +401,60 @@ def test_cli_timeout_kills_the_whole_group(tmp_path):
     except OSError:
         alive = False
     assert not alive
+
+
+# ------------------------------------------------- D-030: the Chrome route works well
+
+
+def test_damaged_local_state_lists_nothing(tmp_path):
+    ls = tmp_path / "Local State"
+    ls.write_text("{not json")
+    assert adapter.list_chrome_profiles(ls) == []
+
+
+def test_mac_keychain_refusal_message(monkeypatch):
+    monkeypatch.setattr(adapter.sys, "platform", "darwin")
+    msg = adapter._login_failure_message("keychain access denied for chrome safe storage")
+    assert "Always Allow" in msg and "Windows" not in msg
+
+
+def test_signed_out_profile_gets_stale_message(home, monkeypatch):
+    """The copy works but Google refuses the session: say the profile is signed out or stale."""
+
+    def fake_cli(args, timeout):
+        d = adapter.paths.profile_dir("acct-x")
+        d.mkdir(parents=True, exist_ok=True)
+        adapter.paths.storage_path("acct-x").write_text("{}")  # fixture only
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(adapter, "_cli", fake_cli)
+    monkeypatch.setattr(
+        adapter, "check_session", lambda name: adapter.SessionStatus("needs_sign_in", "needs sign in")
+    )
+    st = adapter.login_from_chrome("acct-x", "Profile 2", "j@example.com")
+    assert st.state == "needs_sign_in" and st.message == adapter.STALE_CHROME_MESSAGE
+
+
+def test_chrome_running_check_is_windows_only_and_hidden(monkeypatch):
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen.update(kw, cmd=cmd)
+        return subprocess.CompletedProcess(cmd, 0, '"chrome.exe","1234","Console","1","90,000 K"\n', "")
+
+    monkeypatch.setattr(adapter.procs.subprocess, "run", fake_run)
+    monkeypatch.setattr(adapter.sys, "platform", "darwin")
+    assert adapter.chrome_running() is False and not seen
+    monkeypatch.setattr(adapter.sys, "platform", "win32")
+    assert adapter.chrome_running() is True
+    assert seen["creationflags"] & 0x08000000  # D-031: started hidden through nlh.procs
+    monkeypatch.setattr(
+        adapter.procs.subprocess,
+        "run",
+        lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, "INFO: No tasks", ""),
+    )
+    assert adapter.chrome_running() is False
+
+
+def test_emails_redacted_in_log():
+    assert "example.com" not in redact("account Someone.Name@Example.com failed")

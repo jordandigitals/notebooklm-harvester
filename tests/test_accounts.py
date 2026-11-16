@@ -228,3 +228,19 @@ def test_windows_stale_chrome_account_skips_automatic_chrome_reread(ledger, fake
         accounts.with_session(ledger, ledger.account(acct.id), stale)
     assert fake["chrome_logins"] == before
     assert ledger.account(acct.id).last_status == "needs_sign_in"
+
+
+def test_chrome_open_on_windows_refused_before_copy(ledger, fake, monkeypatch):
+    monkeypatch.setattr(adapter, "chrome_running", lambda: True)
+    with pytest.raises(accounts.AccountError) as e:
+        accounts.add_from_chrome(ledger, "Profile 2")
+    assert "Quit Chrome" in str(e.value)
+    assert fake["chrome_logins"] == 0 and not ledger.accounts()
+
+
+def test_chrome_add_logs_no_email(ledger, fake, caplog):
+    import logging
+
+    caplog.set_level(logging.DEBUG)
+    accounts.add_from_chrome(ledger, "Profile 2")
+    assert "j@example.com" not in caplog.text

@@ -29,6 +29,8 @@ _PATTERNS = [
     re.compile(r"\b(?:NID|AEC|OTZ|SOCS)\b"),
     # Anything that looks like a key=value secret.
     re.compile(r"(?i)(cookie|token|authorization|csrf|session)[\"']?\s*[:=]\s*[\"']?[^\s,;\"']+"),
+    # Email addresses (D-030: emails never reach the log in plain form).
+    re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+"),
     # Long opaque tokens (cookie values, base64). Path separators and dots are not part of
     # the class, so file paths survive; UUIDs are protected separately.
     re.compile(r"[A-Za-z0-9_\-+=]{32,}"),

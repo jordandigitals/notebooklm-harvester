@@ -717,7 +717,9 @@ def _login_result(proc: subprocess.CompletedProcess, profile_name: str, verify: 
     log.warning(
         "login for %s failed (exit %d): %s", profile_name, proc.returncode, redact(" | ".join(lines[-3:]))
     )
-    return SessionStatus("needs_sign_in", _login_failure_message(" ".join(lines).lower()))
+    # The message may look at keychain lines too (they are only left out of the log).
+    everything = ((proc.stdout or "") + " " + (proc.stderr or "")).lower()
+    return SessionStatus("needs_sign_in", _login_failure_message(everything))
 
 
 def _login_failure_message(text: str) -> str:
@@ -729,9 +731,47 @@ def _login_failure_message(text: str) -> str:
         )
     if "dll load failed" in text or "virus" in text:
         return "Windows security blocked the part that reads Chrome's sign-in. See INSTALL.md, Windows notes."
-    if "no populated" in text or "was not found" in text:
-        return "That Chrome profile has no saved Google sign-in on this computer."
+    if sys.platform == "darwin" and ("keychain" in text or "safe storage" in text or "decrypt" in text):
+        return (
+            "macOS did not let the app read Chrome's saved sign-in. Try again and, when macOS asks "
+            "for Chrome Safe Storage, enter your Mac password and choose Always Allow."
+        )
+    if "no populated" in text or "was not found" in text or "no cookies" in text:
+        return (
+            "That Chrome profile has no saved Google sign-in on this computer. Open Chrome in that "
+            "profile, sign in to Google, quit Chrome, then press Refresh and try again."
+        )
     return "Sign-in did not complete. Details are in the log."
+
+
+STALE_CHROME_MESSAGE = (
+    "The sign-in copied from that Chrome profile is signed out or has expired. Open Chrome in that "
+    "profile, open notebooklm.google.com and sign in again, quit Chrome, then try again."
+)
+CHROME_OPEN_MESSAGE = (
+    "Chrome is open, so its sign-in cannot be read. Quit Chrome completely "
+    "(also its icon near the clock), then try again."
+)
+
+
+def chrome_running() -> bool:
+    """True if Google Chrome is running on Windows, where it locks its sign-in data (D-030).
+
+    Only process names are looked at. The check starts hidden (D-031: no console window).
+    Other systems do not lock the data, so they always answer False.
+    """
+    if sys.platform != "win32":
+        return False
+    try:
+        out = procs.run(
+            ["tasklist", "/FI", "IMAGENAME eq chrome.exe", "/FO", "CSV", "/NH"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False  # unknown: let the copy try and report what it finds
+    return "chrome.exe" in out.lower()
 
 
 def login_from_chrome(
@@ -753,7 +793,11 @@ def login_from_chrome(
         )
     except subprocess.TimeoutExpired:
         return SessionStatus("library_error", "Reading the Chrome sign-in timed out.")
-    return _login_result(proc, profile_name, verify)
+    status = _login_result(proc, profile_name, verify)
+    if proc.returncode == 0 and status.state == "needs_sign_in" and paths.storage_path(profile_name).exists():
+        # The copy worked but Google does not accept it: the profile is signed out or stale.
+        return SessionStatus("needs_sign_in", STALE_CHROME_MESSAGE, status.email)
+    return status
 
 
 GOOGLE_SIGNIN_BASE = "https://accounts.google.com/ServiceLogin?continue="
@@ -910,7 +954,11 @@ def list_chrome_profiles(local_state: Path | None = None) -> list[ChromeProfile]
     path = local_state or chrome_local_state()
     if not path:
         return []
-    data = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:  # Chrome mid-write or a damaged file: show none, never crash
+        log.warning("could not read Chrome Local State: %s", type(exc).__name__)
+        return []
     cache = (data.get("profile") or {}).get("info_cache") or {}
     out = [
         ChromeProfile(folder, info.get("name") or folder, info.get("user_name") or "")

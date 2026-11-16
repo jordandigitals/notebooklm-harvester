@@ -190,7 +190,8 @@ def capture(s: Shots):
         marks=[
             ("#add-toggle", 1, "left"),
             ("#chrome-list button >> text=/^Add$/", 2, "right"),
-            ("#signin-add", 3, "right"),
+            ("#chrome-refresh", 3, "right"),
+            ("#signin-add", 4, "right"),
         ],
         crop=["#add-panel", "#add-toggle"],
     )

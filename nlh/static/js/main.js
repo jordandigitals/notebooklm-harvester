@@ -7,7 +7,7 @@ import {
   selectAllVisible, selectNew, invertSelection, clearSelection, harvestSelection, moveFocus, toggleFocused,
   openFocused, testHooks,
 } from "./library.js";
-import { acctState, renderAccountList, renderAccountCard, syncScopeButtons, toggleAdd, adjustAddPanel } from "./accounts.js";
+import { acctState, renderAccountList, renderAccountCard, syncScopeButtons, toggleAdd, adjustAddPanel, loadChromeProfiles } from "./accounts.js";
 import { renderHistory, hist, historyHooks } from "./history.js";
 import { renderStats } from "./stats.js";
 import { renderStudio, studioHooks } from "./studio.js";
@@ -269,6 +269,7 @@ async function init() {
   $("sel-harvest").addEventListener("click", () => harvestSelection(startJob));
   $("filters-clear").addEventListener("click", clearAll);
   $("add-toggle").addEventListener("click", toggleAdd);
+  $("chrome-refresh").addEventListener("click", loadChromeProfiles);
   $("signin-add").addEventListener("click", () => startJob(api("/api/accounts/signin", { method: "POST", body: { label: $("signin-label").value } }), { add: true }));
   $("sidebar-open").addEventListener("click", () => { $("sidebar").classList.add("is-open"); $("sidebar").querySelector("button")?.focus(); });
   for (const b of document.querySelectorAll(".close-sidebar")) b.addEventListener("click", () => { $("sidebar").classList.remove("is-open"); $("sidebar-open").focus(); });

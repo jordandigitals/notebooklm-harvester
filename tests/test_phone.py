@@ -483,3 +483,18 @@ def test_unpaired_phone_gets_manifest_and_icons_only(app):
     for path in ("/static/js/main.js", "/static/index.html", "/api/state", "/"):
         assert c.get(path).status_code == 403, path
     assert c.get("/static/icons/../js/main.js").status_code in (403, 404)
+
+
+def test_phone_cannot_list_chrome_or_add_accounts(app, monkeypatch):
+    """D-030: the Chrome list and the add-account routes stay laptop-only."""
+    from nlh import adapter as nlh_adapter
+
+    monkeypatch.setattr(nlh_adapter, "list_chrome_profiles", lambda *a: pytest.fail("Local State read"))
+    c = phone_client(app, paired(app))
+    hdr = {"X-NLH-Req": "1"}
+    assert c.get("/api/chrome").status_code == 403
+    assert (
+        c.open("/api/accounts/chrome", method="POST", headers=hdr, json={"folder": "Profile 2"}).status_code
+        == 403
+    )
+    assert c.open("/api/accounts/signin", method="POST", headers=hdr, json={}).status_code == 403

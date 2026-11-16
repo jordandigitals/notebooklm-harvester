@@ -101,9 +101,12 @@
             <ul id="acct-list" class="acct-list"></ul>
             <div id="add-panel" class="add-panel is-hidden">
               <div id="add-chrome" class="add-block">
-                <h3 id="chrome-head">From a Chrome profile</h3>
+                <div class="add-head">
+                  <h3 id="chrome-head">From a Chrome profile</h3>
+                  <button id="chrome-refresh" class="btn btn-ghost btn-sm" type="button"><svg class="icon icon-sm" aria-hidden="true"><use href="#i-refresh"/></svg>Refresh</button>
+                </div>
                 <p id="chrome-hint" class="hint">Uses a Google account already signed in to Chrome on this computer.</p>
-                <div id="chrome-list"></div>
+                <div id="chrome-list" aria-live="polite"></div>
               </div>
               <div id="add-signin" class="add-block">
                 <h3 id="signin-head">Sign in to Google</h3>

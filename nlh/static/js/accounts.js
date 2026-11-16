@@ -143,24 +143,40 @@ export async function toggleAdd() {
   const open = panel.classList.contains("is-hidden");
   show(panel, open);
   $("add-toggle").setAttribute("aria-expanded", open ? "true" : "false");
-  if (!open) return;
+  if (open) await loadChromeProfiles();
+}
+
+/** Where to send someone with no usable Chrome profile (the own window when this copy has it). */
+function noProfileHint(chromeFound) {
+  const other = acctState.interactive ? ` Or use "${$("signin-head").textContent.replace(/ \(.*\)$/, "")}" below.` : "";
+  return chromeFound
+    ? `No Chrome profile on this computer is signed in to Google. Sign in to Google in Chrome first, then press Refresh.${other}`
+    : `Google Chrome was not found on this computer.${other}`;
+}
+
+/** Read the Chrome profiles on this computer (local only, D-030) and draw the pick list. */
+export async function loadChromeProfiles() {
   const list = $("chrome-list");
+  const refresh = $("chrome-refresh");
+  refresh.disabled = true;
   list.replaceChildren(el("p", "hint", "Looking for Chrome profiles..."));
   try {
-    const profiles = await api("/api/chrome");
+    const data = await api("/api/chrome");
     list.replaceChildren();
-    if (!profiles.length) list.append(el("p", "hint", "No signed-in Chrome profiles found."));
-    for (const p of profiles) {
+    if (!data.profiles.length) list.append(el("p", "hint", noProfileHint(data.chrome)));
+    for (const p of data.profiles) {
       const row = el("div", "chrome-item");
       const who = el("div", "who");
-      who.append(el("span", "", p.name), el("span", "hint", p.email));
+      who.append(el("span", "", p.email), el("span", "hint", p.name));
       const b = button(p.added ? "Added" : "Add", { cls: "btn btn-sm" });
       b.disabled = p.added || acctState.busy();
+      if (!p.added) b.setAttribute("aria-label", `Add ${p.email}`);
       b.addEventListener("click", () => acctState.startJob(api("/api/accounts/chrome", { method: "POST", body: { folder: p.folder } }), { add: true }));
       row.append(who, b);
       list.append(row);
     }
   } catch (e) { list.replaceChildren(el("p", "error", e.message)); }
+  finally { refresh.disabled = false; }
 }
 
 /** Platform texts for the add panel (D-022 on Windows; Chrome-only builds). */

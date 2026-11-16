@@ -192,6 +192,25 @@ class Job:
         }
 
 
+class TryLimit:
+    """A simple sliding-window limit on tries (D-030: rate-limits adding from Chrome)."""
+
+    def __init__(self, limit: int = 10, window_s: float = 600.0):
+        self.limit, self.window_s = limit, window_s
+        self.times: list[float] = []
+        self.lock = threading.Lock()
+
+    def allow(self) -> bool:
+        """Count one try; False once the window already holds the limit."""
+        now = time.monotonic()
+        with self.lock:
+            self.times = [t for t in self.times if now - t < self.window_s]
+            if len(self.times) >= self.limit:
+                return False
+            self.times.append(now)
+            return True
+
+
 class Worker:
     """Single background thread that runs jobs in order."""
 
@@ -242,6 +261,8 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
     app = Flask(__name__, static_folder=None)
     led = ledger or Ledger()
     worker = Worker()
+    chrome_tries = TryLimit()
+    app.config["CHROME_TRIES"] = chrome_tries
     phones = phone.PhoneState()
     phones.load()
     app.config["PHONES"] = phones
@@ -480,16 +501,20 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
 
     @app.get("/api/chrome")
     def chrome():
+        """Chrome profiles on this computer, read from Local State only (D-030; never logged)."""
         return jsonify(
-            [
+            chrome=adapter.chrome_local_state() is not None,
+            profiles=[
                 {"folder": p.folder, "name": p.name, "email": p.email, "added": added}
                 for p, added in accounts.chrome_candidates(led)
-            ]
+            ],
         )
 
     @app.post("/api/accounts/chrome")
     def add_chrome():
-        folder = str(body().get("folder", ""))
+        folder = str(body().get("folder", ""))[:80]
+        if not chrome_tries.allow():
+            return jsonify(error="Too many tries. Wait a few minutes, then try again."), 429
 
         def run(job):
             acct, _ = accounts.add_from_chrome(led, folder)

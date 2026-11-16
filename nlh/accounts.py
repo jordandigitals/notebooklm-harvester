@@ -99,6 +99,8 @@ def add_from_chrome(ledger: Ledger, folder: str) -> tuple[Account, SessionStatus
     if not match:
         raise AccountError("That Chrome profile was not found on this computer.")
     prof = match[0]
+    if adapter.chrome_running():
+        raise AccountError(adapter.CHROME_OPEN_MESSAGE)  # Windows locks the data while Chrome runs
     existing = [a for a in ledger.accounts() if (a.email or "").lower() == prof.email.lower()]
     if existing:
         raise AccountError(f"{prof.email} is already added as '{existing[0].label}'.")

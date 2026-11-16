@@ -239,3 +239,67 @@ def test_request_log_is_quiet():
     srv.quiet_request_log()
     assert not logging.getLogger("werkzeug").isEnabledFor(logging.INFO)
     assert logging.getLogger("werkzeug").isEnabledFor(logging.WARNING)
+
+
+# ------------------------------------------------- D-030: Chrome profile list
+
+PROFILES = [
+    adapter.ChromeProfile("Profile 2", "Work", "j@example.com"),
+    adapter.ChromeProfile("Profile 5", "Home", "h@example.com"),
+]
+
+
+def test_chrome_list_marks_added(client, ledger, monkeypatch, tmp_path):
+    monkeypatch.setattr(adapter, "list_chrome_profiles", lambda *a: PROFILES)
+    monkeypatch.setattr(adapter, "chrome_local_state", lambda: tmp_path / "Local State")
+    ledger.add_account("p1", "Work", "J@example.com", "Profile 2")
+    _, c = client
+    data = c.get("/api/chrome", headers=H).get_json()
+    assert data["chrome"] is True
+    assert [(p["folder"], p["email"], p["name"], p["added"]) for p in data["profiles"]] == [
+        ("Profile 2", "j@example.com", "Work", True),
+        ("Profile 5", "h@example.com", "Home", False),
+    ]
+
+
+def test_chrome_list_empty_and_no_chrome(client, monkeypatch):
+    monkeypatch.setattr(adapter, "list_chrome_profiles", lambda *a: [])
+    monkeypatch.setattr(adapter, "chrome_local_state", lambda: None)
+    _, c = client
+    assert c.get("/api/chrome", headers=H).get_json() == {"chrome": False, "profiles": []}
+
+
+def test_pick_runs_the_copy(client, ledger, monkeypatch):
+    calls = []
+    monkeypatch.setattr(adapter, "list_chrome_profiles", lambda *a: PROFILES)
+    monkeypatch.setattr(adapter, "chrome_running", lambda: False)
+
+    def login_from_chrome(name, folder, email, verify=True):
+        calls.append((folder, email))
+        return adapter.SessionStatus("ok", "Signed in.", email)
+
+    monkeypatch.setattr(adapter, "login_from_chrome", login_from_chrome)
+    _, c = client
+    r = c.post("/api/accounts/chrome", headers=H, json={"folder": "Profile 5"})
+    assert _wait(c, r.get_json()["id"])["state"] == "done"
+    assert calls == [("Profile 5", "h@example.com")]
+    assert ledger.accounts()[0].chrome_profile == "Profile 5"
+
+
+def test_chrome_add_tries_are_rate_limited(client, monkeypatch):
+    monkeypatch.setattr(adapter, "list_chrome_profiles", lambda *a: [])
+    app, c = client
+    app.config["CHROME_TRIES"].limit = 2
+    codes = [
+        c.post("/api/accounts/chrome", headers=H, json={"folder": "Profile 9"}).status_code for _ in range(4)
+    ]
+    assert codes == [200, 200, 429, 429]
+
+
+def test_try_limit_window_expires(monkeypatch):
+    lim = server.TryLimit(limit=2, window_s=10)
+    now = [100.0]
+    monkeypatch.setattr(server.time, "monotonic", lambda: now[0])
+    assert lim.allow() and lim.allow() and not lim.allow()
+    now[0] += 11
+    assert lim.allow()
