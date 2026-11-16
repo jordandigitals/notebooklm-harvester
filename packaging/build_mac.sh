@@ -47,7 +47,7 @@ rm -rf build/pyinstaller "dist/$NAME.app" dist/NotebookLM-Harvester-mac-*
   --add-binary "$PWD/$CACHE/ffprobe:." \
   --collect-all notebooklm \
   --collect-all rookie_cookies \
-  --exclude-module playwright \
+  --collect-all playwright \
   nlh/app_entry.py
 
 cp nlh/static/THIRD-PARTY-NOTICES.txt "dist/$NAME.app/Contents/Resources/"

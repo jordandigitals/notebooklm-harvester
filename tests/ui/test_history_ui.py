@@ -99,8 +99,11 @@ def test_phone_load_more(browser, server):
 
 def test_export_contains_every_filtered_row(browser, server):
     page = history_page(browser, server)
+    before = page.evaluate("window.__nlhTest.history.total()")
     page.fill("#view-history input[type=search]", "garden")
-    page.wait_for_timeout(800)
+    # Wait for the filtered answer itself, not a fixed delay (a slow machine missed 800 ms).
+    page.wait_for_function(f"window.__nlhTest.history.total() !== {before}", timeout=15000)
+    page.wait_for_timeout(300)
     total = page.evaluate("window.__nlhTest.history.total()")
     resp = page.context.request.get(server.base + "/api/export.csv?q=garden")  # page cookie, not a header
     rows = list(csv.DictReader(io.StringIO(resp.body().decode("utf-8-sig"))))

@@ -3,6 +3,7 @@
 import asyncio
 import json
 import subprocess
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -86,7 +87,8 @@ def test_redact_keeps_uuids_and_paths():
 def test_interactive_login_stops_when_google_signin_not_finished(home, monkeypatch):
     """No library login runs (and nothing is saved) unless Google really signed in."""
     calls = []
-    monkeypatch.setattr(adapter, "_google_signin_window", lambda name, t: False)
+    monkeypatch.setattr(adapter, "signin_browser", lambda: "chrome")
+    monkeypatch.setattr(adapter, "_google_signin_window", lambda name, t, channel="chrome": False)
     monkeypatch.setattr(adapter, "_cli", lambda args, timeout: calls.append(args))
     st = adapter.login_interactive("acct-x", 5)
     assert st.state == "needs_sign_in"
@@ -97,7 +99,8 @@ def test_interactive_login_stops_when_google_signin_not_finished(home, monkeypat
 def test_interactive_login_hands_over_after_google_signin(home, monkeypatch):
     """After a real Google sign-in the library login runs for the same profile."""
     calls = []
-    monkeypatch.setattr(adapter, "_google_signin_window", lambda name, t: True)
+    monkeypatch.setattr(adapter, "signin_browser", lambda: "chrome")
+    monkeypatch.setattr(adapter, "_google_signin_window", lambda name, t, channel="chrome": True)
 
     def fake_cli(args, timeout):
         calls.append(args)
@@ -458,3 +461,101 @@ def test_chrome_running_check_is_windows_only_and_hidden(monkeypatch):
 
 def test_emails_redacted_in_log():
     assert "example.com" not in redact("account Someone.Name@Example.com failed")
+
+
+# ------------------------------------------------- D-029: own window drives installed Chrome, else Edge
+
+
+def _fake_browsers(monkeypatch, tmp_path, chrome, edge):
+    paths_ = {"chrome": [tmp_path / "chrome-bin"], "msedge": [tmp_path / "edge-bin"]}
+    if chrome:
+        paths_["chrome"][0].write_text("")
+    if edge:
+        paths_["msedge"][0].write_text("")
+    monkeypatch.setattr(adapter, "_browser_paths", lambda: paths_)
+
+
+@pytest.mark.parametrize(
+    ("chrome", "edge", "expected"),
+    [(True, True, "chrome"), (True, False, "chrome"), (False, True, "msedge"), (False, False, None)],
+)
+def test_signin_browser_prefers_chrome_then_edge(monkeypatch, tmp_path, chrome, edge, expected):
+    _fake_browsers(monkeypatch, tmp_path, chrome, edge)
+    assert adapter.signin_browser() == expected
+
+
+def test_browser_paths_cover_every_system(monkeypatch):
+    for plat in ("win32", "darwin", "linux"):
+        monkeypatch.setattr(adapter.sys, "platform", plat)
+        got = adapter._browser_paths()
+        assert set(got) == {"chrome", "msedge"} and all(got.values())
+
+
+def test_no_browser_stops_before_anything_is_made(home, monkeypatch, tmp_path):
+    _fake_browsers(monkeypatch, tmp_path, False, False)
+    monkeypatch.setattr(adapter, "_google_signin_window", lambda *a: pytest.fail("window opened"))
+    monkeypatch.setattr(adapter, "_cli", lambda *a: pytest.fail("library ran"))
+    st = adapter.login_interactive("acct-x", 5)
+    assert st.state == "needs_sign_in" and st.message == adapter.NO_BROWSER_MESSAGE
+    assert "Chrome or Microsoft Edge" in st.message
+    assert not adapter.paths.profile_dir("acct-x").exists()
+
+
+def test_edge_only_drives_edge_in_window_and_library(home, monkeypatch, tmp_path):
+    _fake_browsers(monkeypatch, tmp_path, False, True)
+    seen = {}
+
+    def window(name, t, channel="chrome"):
+        seen["window"] = channel
+        return True
+
+    def fake_cli(args, timeout):
+        seen["cli"] = args[args.index("--browser") + 1]
+        return SimpleNamespace(returncode=1, stderr="", stdout="")
+
+    monkeypatch.setattr(adapter, "_google_signin_window", window)
+    monkeypatch.setattr(adapter, "_cli", fake_cli)
+    adapter.login_interactive("acct-x", 5)
+    assert seen == {"window": "msedge", "cli": "msedge"}
+
+
+def test_window_launches_the_chosen_channel(home, monkeypatch):
+    seen = {}
+    ctx = _FakeContext(_FakePage("about:blank"), stale_at_launch=True)
+
+    def launch(**kw):
+        seen.update(kw)
+        return ctx
+
+    class _PW:
+        def __enter__(self):
+            return SimpleNamespace(chromium=SimpleNamespace(launch_persistent_context=launch))
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", SimpleNamespace(sync_playwright=lambda: _PW()))
+    monkeypatch.setattr(adapter, "NUDGE_AFTER_S", 0)
+    monkeypatch.setattr(adapter.time, "sleep", lambda s: None)
+    adapter._google_signin_window("acct-x", 1, "msedge")
+    assert seen["channel"] == "msedge" and seen["headless"] is False
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes")
+def test_own_window_session_file_is_owner_only(home, monkeypatch, tmp_path):
+    _fake_browsers(monkeypatch, tmp_path, True, False)
+    monkeypatch.setattr(adapter, "_google_signin_window", lambda *a: True)
+
+    def fake_cli(args, timeout):
+        d = adapter.paths.profile_dir("acct-x")
+        d.mkdir(parents=True, exist_ok=True)
+        adapter.paths.storage_path("acct-x").write_text("{}")  # fixture only
+        return SimpleNamespace(returncode=0, stderr="", stdout="")
+
+    monkeypatch.setattr(adapter, "_cli", fake_cli)
+    monkeypatch.setattr(
+        adapter, "check_session", lambda n: adapter.SessionStatus("ok", "Signed in.", "a@example.com")
+    )
+    assert adapter.login_interactive("acct-x", 5).ok
+    assert adapter.paths.storage_path("acct-x").stat().st_mode & 0o777 == 0o600
+    assert adapter.paths.profile_dir("acct-x").stat().st_mode & 0o777 == 0o700

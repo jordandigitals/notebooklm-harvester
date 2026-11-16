@@ -100,22 +100,25 @@
             </div>
             <ul id="acct-list" class="acct-list"></ul>
             <div id="add-panel" class="add-panel is-hidden">
-              <div id="add-chrome" class="add-block">
+              <div id="add-signin" class="add-block">
+                <h3 id="signin-head">Add a Google account</h3>
+                <div id="signin-row" class="row">
+                  <label for="signin-label" class="sr-only">Name for this account</label>
+                  <input id="signin-label" class="input grow" type="text" maxlength="80" placeholder="Name for this account (optional)">
+                </div>
+                <button id="signin-add" class="btn btn-primary btn-block" type="button">Continue with Google</button>
+                <p id="signin-helper" class="hint">A Google window opens here. The app never sees your password.</p>
+                <p id="signin-hint" class="hint">It opens in your Chrome or Edge as a separate blank window (it looks like a guest profile; that is expected). Sign in there once and the app remembers it. Your own Chrome profiles are not touched.</p>
+                <p id="signin-msg" class="error" role="status" aria-live="polite"></p>
+              </div>
+              <button id="chrome-toggle" class="btn btn-ghost btn-sm chrome-toggle" type="button" aria-expanded="false" aria-controls="add-chrome">Use a Chrome profile instead</button>
+              <div id="add-chrome" class="add-block is-hidden">
                 <div class="add-head">
                   <h3 id="chrome-head">From a Chrome profile</h3>
                   <button id="chrome-refresh" class="btn btn-ghost btn-sm" type="button"><svg class="icon icon-sm" aria-hidden="true"><use href="#i-refresh"/></svg>Refresh</button>
                 </div>
                 <p id="chrome-hint" class="hint">Uses a Google account already signed in to Chrome on this computer.</p>
                 <div id="chrome-list" aria-live="polite"></div>
-              </div>
-              <div id="add-signin" class="add-block">
-                <h3 id="signin-head">Sign in to Google</h3>
-                <p id="signin-hint" class="hint">Opens a blank Chrome window (it looks like a guest profile; that is expected) where you sign in once to any Google account. The app remembers it.</p>
-                <div id="signin-row" class="row">
-                  <label for="signin-label" class="sr-only">Name for this account</label>
-                  <input id="signin-label" class="input grow" type="text" placeholder="Name for this account (optional)">
-                  <button id="signin-add" class="btn" type="button">Sign in</button>
-                </div>
               </div>
             </div>
           </div>

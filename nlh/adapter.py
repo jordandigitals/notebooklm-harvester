@@ -606,6 +606,46 @@ def run_library_cli(args: list[str]) -> None:
     library_main()
 
 
+NO_BROWSER_MESSAGE = (
+    "This needs Google Chrome or Microsoft Edge on this computer. Install one, then try again."
+)
+
+
+def _browser_paths() -> dict[str, list[Path]]:
+    """Where Chrome and Edge are installed on this system (the places Playwright's channels use)."""
+    if sys.platform == "win32":
+        roots = [
+            os.environ.get("LOCALAPPDATA", ""),
+            os.environ.get("PROGRAMFILES", r"C:\Program Files"),
+            os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)"),
+        ]
+        return {
+            "chrome": [Path(r) / "Google" / "Chrome" / "Application" / "chrome.exe" for r in roots if r],
+            "msedge": [Path(r) / "Microsoft" / "Edge" / "Application" / "msedge.exe" for r in roots if r],
+        }
+    if sys.platform == "darwin":
+        return {
+            "chrome": [Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")],
+            "msedge": [Path("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge")],
+        }
+    return {
+        "chrome": [Path("/opt/google/chrome/chrome")],
+        "msedge": [Path("/opt/microsoft/msedge/msedge")],
+    }
+
+
+def signin_browser() -> str | None:
+    """The installed browser the own sign-in window drives (D-029): Chrome first, then Edge.
+
+    Returns the Playwright channel name ("chrome" or "msedge"), or None when neither is
+    installed. Only file locations are checked; nothing is started.
+    """
+    for channel, candidates in _browser_paths().items():
+        if any(c.is_file() for c in candidates):
+            return channel
+    return None
+
+
 def interactive_available() -> bool:
     """True if the fresh browser sign-in can run (needs Playwright, left out of some builds)."""
     import importlib.util
@@ -824,8 +864,9 @@ NUDGE_AFTER_S = 3  # grace after Google's sign-in cookie appears before taking t
 NUDGE_EVERY_S = 15
 
 
-def _google_signin_window(profile_name: str, timeout_s: int) -> bool:
-    """Open Chrome on Google's sign-in page and wait until Google has really signed in.
+def _google_signin_window(profile_name: str, timeout_s: int, channel: str = "chrome") -> bool:
+    """Open the installed browser (channel: Chrome or Edge, D-029) on Google's sign-in page and
+    wait until Google has really signed in.
 
     Why: notebooklm-py 0.8.2 counts any landing on the NotebookLM web address as signed
     in, but a signed-out browser also lands there (Google's public NotebookLM page), so
@@ -852,7 +893,7 @@ def _google_signin_window(profile_name: str, timeout_s: int) -> bool:
         ctx = pw.chromium.launch_persistent_context(
             user_data_dir=str(browser_profile),
             headless=False,
-            channel="chrome",
+            channel=channel,
             no_viewport=True,
             args=["--disable-blink-features=AutomationControlled", "--password-store=basic"],
             ignore_default_args=["--enable-automation"],
@@ -914,10 +955,16 @@ def _google_signin_window(profile_name: str, timeout_s: int) -> bool:
 
 
 def login_interactive(profile_name: str, timeout_s: int = 300) -> SessionStatus:
-    """Open Chrome for a fresh Google sign-in and save the session to a new profile."""
-    if not _google_signin_window(profile_name, timeout_s):
+    """Open the own Google sign-in window (Chrome, else Edge; D-029) and save the session.
+
+    With neither browser installed it stops before anything is created on disk.
+    """
+    channel = signin_browser()
+    if channel is None:
+        return SessionStatus("needs_sign_in", NO_BROWSER_MESSAGE)
+    if not _google_signin_window(profile_name, timeout_s, channel):
         return SessionStatus(
-            "needs_sign_in", "Google sign-in was not finished. Try again and sign in in the Chrome window."
+            "needs_sign_in", "Google sign-in was not finished. Try again and sign in in the Google window."
         )
     try:
         proc = _cli(
@@ -926,7 +973,7 @@ def login_interactive(profile_name: str, timeout_s: int = 300) -> SessionStatus:
                 profile_name,
                 "login",
                 "--browser",
-                "chrome",
+                channel,
                 "--browser-timeout",
                 "60",
             ],

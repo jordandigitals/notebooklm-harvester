@@ -15,11 +15,12 @@ The apps are not signed (signing is deferred), which is why the system asks once
 On a Mac, the first time the app reads a Chrome sign-in, macOS asks to let it use "Chrome
 Safe Storage" from the keychain: enter your Mac password and choose Always Allow.
 
-The ready-made Mac app adds accounts from Chrome profiles only (the Sign in to Google
-window needs an extra 157 MB component that is left out). To add an account that is not
-in Chrome yet, sign in to it in Chrome first, then add it from the list.
-The ready-made Windows app includes the Sign in to Google window, because on Windows the
-Chrome route needs Chrome fully closed and can trip Windows Security (see Windows notes).
+Adding an account needs Google Chrome or Microsoft Edge on the computer (both are free).
+The recommended way is **Continue with Google**: the app opens a separate Google window in
+your Chrome (or Edge if Chrome is missing), you sign in there once, and the app keeps only
+the resulting session, never your password. Your own Chrome profiles are not touched and you
+do not need to be signed in to Chrome first. On a Mac with only Safari, install Chrome or Edge
+to add an account; playing the files you saved does not need either.
 
 To stop the app, press Quit on the page. Starting it again opens the same page.
 
@@ -28,7 +29,7 @@ To stop the app, press Quit on the page. Starting it again opens the same page.
 Sign-ins are never copied between computers; each computer signs in on its own.
 
 1. Install the ready-made app on the new computer (above) and start it.
-2. Add account: pick the Chrome profile on that computer that is signed in to the Google account with your notebooks. Repeat for each account.
+2. Add account: press **Continue with Google** and sign in, or use **Use a Chrome profile instead** to pick a Chrome profile already signed in on that computer. Repeat for each account.
 3. Choose folder for each account. To share one library between computers, pick the same synced folder (Google Drive, MEGA or OneDrive) on both.
 4. Press **Scan folder**. The app reads the tags of the MP3s already in that folder and records them, so nothing is downloaded twice.
 5. Refresh notebooks, then harvest.
@@ -73,7 +74,7 @@ The page address contains a one-time key, so only you can use it. Each start mak
 
 ## Use it
 
-1. **Add account.** Open **Add account** (on a phone or small window it is under **Accounts and filters**). Under From a Chrome profile, the app lists the Chrome profiles on this computer (email and profile name, read only from Chrome's own settings file, never sent anywhere); press Add next to the one signed in to the Google account with your notebooks. Press Refresh after signing in to a new profile in Chrome. If none is listed, sign in to Google in Chrome first, or choose Sign in to sign in to any Google account in a Chrome window. On Windows, Sign in is listed first and recommended (see Windows notes).
+1. **Add account.** Open **Add account** (on a phone or small window it is under **Accounts and filters**). Press **Continue with Google** (recommended): a separate Google window opens in your Chrome or Edge; sign in there once and the app remembers it. The app never sees your password. If neither Chrome nor Edge is installed, the app says so; install one and try again. As a shortcut for an account already signed in to Chrome, press **Use a Chrome profile instead**: the app lists the Chrome profiles on this computer (email and profile name, read only from Chrome's own settings file, never sent anywhere); press Add next to the one you want, or Refresh after signing in to a new profile in Chrome.
 2. **Choose folder.** Pick the account, then **Choose folder**. Any folder works, including one synced by Google Drive, MEGA or OneDrive. You can make a new folder from the picker. Each account remembers its own folder.
 3. **Refresh notebooks.** The app reads your notebooks. Each audio overview shows as New, Saved, File missing, Folder not reachable (drive unplugged or offline), Not finished, or Failed last time.
 4. **Find what you want.** Type in the search box (press `/` to jump there). It searches titles, notebook names, accounts, file names and dates, not what is said in the audio. Prefixes narrow it: `status:new`, `account:work`, `notebook:garden`, `after:2026-11-01`, `before:2026-12-31`. The filter panel adds status, account, notebook, dates and more, each with a count. Sort and group the list, and save a combination as a **View** (three are ready-made: New to harvest, Needs attention, Saved this week). The address bar keeps the view, so refresh and back work.
@@ -101,9 +102,9 @@ On Windows the folder is inside your user profile, which Windows already limits 
 
 ## Windows notes
 
-- **Two ways to add an account; Sign in to Google is recommended on Windows.** It opens a separate Chrome window kept just for this app (it looks like a blank guest window; that is expected); you sign in once and the app remembers it, your normal Chrome stays open and untouched, nothing reads Chrome's saved data, and Windows Security raises no alert. Use a Chrome profile is the quick start for an account already signed in to Chrome, with the two catches below.
+- **Two ways to add an account; Continue with Google is recommended.** It opens a separate window in Chrome (or Edge, which every Windows PC has) kept just for this app (it looks like a blank guest window; that is expected); you sign in once and the app remembers it, your normal Chrome stays open and untouched, nothing reads Chrome's saved data, and Windows Security raises no alert. Use a Chrome profile instead is the shortcut for an account already signed in to Chrome, with the two catches below.
 - **Quit Chrome before adding an account from a Chrome profile.** Windows keeps Chrome's sign-in data locked while Chrome runs, including in the background. Close every Chrome window, then right-click the Chrome icon near the clock (if shown) and choose Exit. Open this page in another browser, such as Edge, for that step. You can reopen Chrome as soon as the account shows Signed in. The same applies to **Sign in again** on an account added from Chrome.
-- **Windows Security may quarantine the Chrome reader.** Reading Chrome's saved sign-in is what info-stealing malware also does, so Microsoft Defender can flag the reader file (`rookie_cookies.pyd`, in `.venv` or inside the ready-made app's `_internal` folder) as `Trojan:Win64/InfoStealer`. It is part of the pinned notebooklm-py dependency and only reads the Google sign-in cookies it needs from your own Chrome on your own computer. To use the Chrome route, open Windows Security, Virus and threat protection, Protection history, select that entry, then Actions and Allow on device. If you would rather not, use **Sign in** instead: it signs in once in a separate Chrome window kept just for this app and never reads your normal Chrome.
+- **Windows Security may quarantine the Chrome reader.** Reading Chrome's saved sign-in is what info-stealing malware also does, so Microsoft Defender can flag the reader file (`rookie_cookies.pyd`, in `.venv` or inside the ready-made app's `_internal` folder) as `Trojan:Win64/InfoStealer`. It is part of the pinned notebooklm-py dependency and only reads the Google sign-in cookies it needs from your own Chrome on your own computer. To use the Chrome route, open Windows Security, Virus and threat protection, Protection history, select that entry, then Actions and Allow on device. If you would rather not, use **Continue with Google** instead: it signs in once in a separate window kept just for this app and never reads your normal Chrome.
 - **Long paths.** On Windows, long overview titles are shortened automatically so the saved path stays under 240 characters (the MP3 tags keep the full title), and an output folder too deep even for that is refused with a plain message asking for a shorter folder.
 
 ## Updating

@@ -383,6 +383,11 @@ def install_fake_adapter() -> None:
     adapter.login_interactive = lambda *a, **k: adapter.SessionStatus(
         "ok", "Signed in (demo).", "demo.new@example.com"
     )
+    # The own sign-in window (D-029) is available in demo mode on every system; NLH_DEMO_NO_BROWSER=1
+    # pretends neither Chrome nor Edge is installed (for the "needs Chrome or Edge" screenshots).
+    adapter.interactive_available = lambda: True
+    no_browser = os.environ.get("NLH_DEMO_NO_BROWSER") == "1"
+    adapter.signin_browser = lambda: None if no_browser else "chrome"
     adapter.list_chrome_profiles = lambda *a: (
         [adapter.ChromeProfile(a["chrome"] or "Profile 9", a["label"], a["email"]) for a in ACCOUNTS]
         + [adapter.ChromeProfile("Profile 7", "Side project", "demo.side@example.com")]

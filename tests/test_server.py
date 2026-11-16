@@ -303,3 +303,32 @@ def test_try_limit_window_expires(monkeypatch):
     assert lim.allow() and lim.allow() and not lim.allow()
     now[0] += 11
     assert lim.allow()
+
+
+# ------------------------------------------------- D-029: Continue with Google needs Chrome or Edge
+
+
+def test_continue_with_google_without_a_browser_says_so_at_once(client, ledger, monkeypatch):
+    monkeypatch.setattr(adapter, "signin_browser", lambda: None)
+    monkeypatch.setattr(adapter, "login_interactive", lambda *a, **k: pytest.fail("window started"))
+    app, c = client
+    r = c.post("/api/accounts/signin", headers=H, json={"label": "x"})
+    assert r.status_code == 400 and r.get_json()["error"] == adapter.NO_BROWSER_MESSAGE
+    acct = ledger.add_account("p1", "One", "one@example.com")  # signed in directly: own window
+    r = c.post(f"/api/accounts/{acct.id}/signin", headers=H)
+    assert r.status_code == 400 and "Chrome or Microsoft Edge" in r.get_json()["error"]
+    assert not ledger.accounts()[0].last_status or ledger.accounts()[0].last_status != "ok"
+
+
+def test_continue_with_google_starts_a_job_with_a_browser(client, ledger, monkeypatch):
+    monkeypatch.setattr(adapter, "signin_browser", lambda: "msedge")
+    monkeypatch.setattr(
+        adapter,
+        "login_interactive",
+        lambda name, *a, **k: adapter.SessionStatus("ok", "Signed in.", "n@example.com"),
+    )
+    _, c = client
+    r = c.post("/api/accounts/signin", headers=H, json={})
+    assert r.status_code == 200
+    job = _wait(c, r.get_json()["id"])
+    assert job["state"] == "done" and any("Google window" in ln for ln in job["lines"])

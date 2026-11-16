@@ -57,6 +57,8 @@ def open_add(browser, server, width=1440, scheme="light", touch=False, empty=Fal
     if page.locator("#sidebar-open").is_visible():
         page.click("#sidebar-open")
     page.click("#add-toggle")
+    if page.locator("#chrome-toggle").is_visible():  # D-029: the Chrome route sits behind this button
+        page.click("#chrome-toggle")
     ready = "#chrome-list .chrome-item, #chrome-list p:not(:has-text('Looking'))"
     page.wait_for_selector(ready, timeout=20000)
     return page
@@ -79,6 +81,8 @@ def test_empty_list_says_so(browser, server):
     page = open_add(browser, server, empty=True)
     msg = page.inner_text("#chrome-list")
     assert "No Chrome profile on this computer is signed in to Google" in msg and "Refresh" in msg
+    # The own sign-in block sits above the Chrome block, and the hint says so (D-029).
+    assert 'Or use "Continue with Google" above.' in msg
     page.context.close()
 
 

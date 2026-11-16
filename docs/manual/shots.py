@@ -183,17 +183,30 @@ def capture(s: Shots):
         pad=0,
     )
     pg.click("#add-toggle")
-    pg.wait_for_selector("#chrome-list .btn, #chrome-list button", timeout=20000)
+    pg.wait_for_selector("#signin-add", timeout=20000)
+    # D-029: Continue with Google first and recommended; the Chrome route behind its own button.
     s.save(
         pg,
         "02-add-account",
         marks=[
             ("#add-toggle", 1, "left"),
-            ("#chrome-list button >> text=/^Add$/", 2, "right"),
-            ("#chrome-refresh", 3, "right"),
-            ("#signin-add", 4, "right"),
+            ("#signin-add", 2, "right"),
+            ("#chrome-toggle", 3, "right"),
         ],
         crop=["#add-panel", "#add-toggle"],
+    )
+    pg.click("#chrome-toggle")
+    pg.wait_for_selector("#chrome-list .btn, #chrome-list button", timeout=20000)
+    pg.locator("#add-chrome").evaluate("e => e.scrollIntoView({block: 'start'})")
+    pg.wait_for_timeout(200)
+    s.save(
+        pg,
+        "02b-chrome-list",
+        marks=[
+            ("#chrome-list button >> text=/^Add$/", 1, "right"),
+            ("#chrome-refresh", 2, "right"),
+        ],
+        crop=["#add-chrome"],
     )
     pg.context.close()
 

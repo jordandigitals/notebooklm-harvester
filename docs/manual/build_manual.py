@@ -491,33 +491,47 @@ def build():
     ]
     S += pic(
         "02-add-account",
-        "Adding an account: (1) Add account, (2) Add next to a Chrome profile, (3) Refresh the list, (4) Sign in (Windows).",
+        "Adding an account: (1) Add account, (2) Continue with Google, (3) Use a Chrome profile instead.",
         width=0.62,
-        max_h=4.6,
+        max_h=4.0,
     )
     S += steps(
         [
             "Press <b>Add account</b>.",
-            "Under <b>From a Chrome profile</b>, the app lists the Chrome profiles on this computer, each with its email and profile name. Press <b>Add</b> next to the one signed in to the Google account with your notebooks. Profiles already added say <b>Added</b>.",
-            "Signed in to a new profile in Chrome just now? Press <b>Refresh</b> to read the list again. If none is listed, sign in to Google in Chrome first.",
-            "Windows only: <b>Sign in to Google</b> opens the app's own sign-in window instead. Type a name if you like and press <b>Sign in</b>.",
+            "Press <b>Continue with Google</b> (recommended). A Google window opens in your Chrome, or in Microsoft Edge if Chrome is missing. It is a separate blank window that looks like a guest profile; that is expected. Sign in there once and the app remembers the account. The app never sees your password, and your own Chrome profiles are not touched. You can type a name for the account first; it is optional.",
+            "Shortcut for an account already signed in to Chrome on this computer: press <b>Use a Chrome profile instead</b>.",
+        ]
+    )
+    S += pic(
+        "02b-chrome-list",
+        "The Chrome route: (1) Add next to a profile, (2) Refresh the list.",
+        width=0.62,
+        max_h=3.4,
+    )
+    S += steps(
+        [
+            "The app lists the Chrome profiles on this computer, each with its email and profile name. Press <b>Add</b> next to the one you want. Profiles already added say <b>Added</b>.",
+            "Signed in to a new profile in Chrome just now? Press <b>Refresh</b> to read the list again.",
         ]
     )
     S += table(
         [
-            ["Route", "Where", "Good to know"],
+            ["Route", "Needs", "Good to know"],
             [
-                "Chrome profile",
-                "Mac and Windows",
+                "Continue with Google (own window)",
+                "Chrome or Edge installed",
+                "Recommended on Mac and Windows. No sign-in inside Chrome is needed beforehand. A Mac with only Safari needs Chrome or Edge (both free) to add an account; playing saved files does not.",
+            ],
+            [
+                "Use a Chrome profile instead",
+                "A Chrome profile signed in to the account",
                 "Quick. A sign-in copied from Chrome can go stale within hours while Chrome stays open; the account then says Sign in again.",
             ],
-            [
-                "Sign in to Google (own window)",
-                "Windows package only",
-                'Recommended on Windows. Opens a blank window that looks like a guest profile; that is expected. The Mac package does not include it and says "This copy adds accounts from Chrome only."',
-            ],
         ],
-        [1.6, 1.3, 3.6],
+        [1.7, 1.5, 3.3],
+    )
+    S += wrong(
+        '"This needs Google Chrome or Microsoft Edge on this computer": install one of them, then press Continue with Google again.'
     )
     S += wrong(
         '"Chrome is open, so its sign-in cannot be read" (Windows): quit Chrome completely, also its icon near the clock, then press Add again. '
@@ -1053,7 +1067,7 @@ def build():
             ["You see", "Try this"],
             [
                 "Account says Sign in again, or the list is empty",
-                "Press Sign in again, then Refresh notebooks. On Windows prefer the app's own sign-in window.",
+                "Press Sign in again, then Refresh notebooks. For an account added from Chrome, adding it again with Continue with Google lasts longer.",
             ],
             [
                 "A new overview is not listed",

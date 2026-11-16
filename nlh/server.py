@@ -525,10 +525,12 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
 
     @app.post("/api/accounts/signin")
     def add_signin():
-        label = str(body().get("label", "")).strip() or None
+        label = str(body().get("label", "")).strip()[:80] or None
+        if adapter.signin_browser() is None:  # D-029: say so at once, nothing is created
+            return jsonify(error=adapter.NO_BROWSER_MESSAGE), 400
 
         def run(job):
-            job.lines.append("A Chrome window is opening. Sign in to Google there.")
+            job.lines.append("A Google window is opening. Sign in there.")
             acct, _ = accounts.add_interactive(led, label)
             job.account_id = acct.id
             job.message = f"Added {acct.label}."
@@ -550,10 +552,12 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
     @app.post("/api/accounts/<int:account_id>/signin")
     def signin(account_id):
         acct = get_account(account_id)
+        if accounts.uses_own_signin(acct) and adapter.signin_browser() is None:
+            return jsonify(error=adapter.NO_BROWSER_MESSAGE), 400
 
         def run(job):
             if accounts.uses_own_signin(acct):
-                job.lines.append("A Chrome window is opening. Sign in to Google there.")
+                job.lines.append("A Google window is opening. Sign in there.")
             st = accounts.sign_in_again(led, acct)
             job.message = st.message
             if not st.ok:

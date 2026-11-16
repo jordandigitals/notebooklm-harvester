@@ -168,18 +168,46 @@ export async function openFolder(path) {
 
 // ------------------------------------------------------------ add account
 
-/** Show or hide the add panel and load the Chrome profiles. */
+/** Show or hide the add panel. The Chrome list loads only when its block is open. */
 export async function toggleAdd() {
   const panel = $("add-panel");
   const open = panel.classList.contains("is-hidden");
   show(panel, open);
   $("add-toggle").setAttribute("aria-expanded", open ? "true" : "false");
+  $("signin-msg").textContent = "";
+  if (open && !$("add-chrome").classList.contains("is-hidden")) await loadChromeProfiles();
+}
+
+/** Open or close the Chrome-profile route under "Use a Chrome profile instead" (D-029, D-030). */
+export async function toggleChromeRoute() {
+  const block = $("add-chrome");
+  const open = block.classList.contains("is-hidden");
+  show(block, open);
+  $("chrome-toggle").setAttribute("aria-expanded", open ? "true" : "false");
   if (open) await loadChromeProfiles();
+}
+
+/** Start "Continue with Google": errors (such as no Chrome or Edge) show under the button. */
+export async function continueWithGoogle() {
+  const msg = $("signin-msg");
+  msg.textContent = "";
+  if (acctState.busy()) return;
+  let job;
+  try {
+    job = await api("/api/accounts/signin", { method: "POST", body: { label: $("signin-label").value } });
+  } catch (e) { msg.textContent = e.message; return; }
+  acctState.startJob(Promise.resolve(job), { add: true });
+}
+
+/** "above" or "below": where the own sign-in block sits relative to the Chrome block right now. */
+function signinWhere() {
+  const pos = $("add-chrome").compareDocumentPosition($("add-signin"));
+  return pos & Node.DOCUMENT_POSITION_PRECEDING ? "above" : "below";
 }
 
 /** Where to send someone with no usable Chrome profile (the own window when this copy has it). */
 function noProfileHint(chromeFound) {
-  const other = acctState.interactive ? ` Or use "${$("signin-head").textContent.replace(/ \(.*\)$/, "")}" below.` : "";
+  const other = acctState.interactive ? ` Or use "${$("signin-add").textContent.trim()}" ${signinWhere()}.` : "";
   return chromeFound
     ? `No Chrome profile on this computer is signed in to Google. Sign in to Google in Chrome first, then press Refresh.${other}`
     : `Google Chrome was not found on this computer.${other}`;
@@ -210,16 +238,10 @@ export async function loadChromeProfiles() {
   finally { refresh.disabled = false; }
 }
 
-/** Platform texts for the add panel (D-022 on Windows; Chrome-only builds). */
+/** Platform texts for the add panel. The own window comes first and is recommended on both
+ * systems (D-029); the Chrome route sits behind "Use a Chrome profile instead". */
 export function adjustAddPanel() {
   if (acctState.windows) {
-    if (acctState.interactive) {
-      $("add-panel").insertBefore($("add-signin"), $("add-chrome"));
-      $("signin-head").textContent = "Sign in to Google (recommended)";
-      $("signin-hint").textContent =
-        "Opens a blank Chrome window that looks like a guest profile. That is expected: it is the harvester's own private window, separate from your Chrome. Sign in there once and it remembers you; your normal Chrome stays open and untouched.";
-    }
-    $("chrome-head").textContent = "Use a Chrome profile (quick start)";
     $("chrome-hint").textContent =
       "Copies the Google sign-in from your Chrome. Quit Chrome completely first (also its icon near the clock). " +
       "Windows Security may report the reader as \"Trojan InfoStealer\" because it reads Chrome's saved sign-in; " +
@@ -227,8 +249,10 @@ export function adjustAddPanel() {
       "Virus and threat protection, Protection history, select the entry, Actions, Allow on device.";
   }
   if (!acctState.interactive) {
-    $("signin-hint").textContent = "This copy adds accounts from Chrome only. Sign in to the account in Chrome first, then pick it above.";
-    show($("signin-row"), false);
+    // A copy without the sign-in window: the Chrome list is the only route, shown at once.
+    show($("add-signin"), false);
+    show($("chrome-toggle"), false);
+    show($("add-chrome"), true);
   }
 }
 
