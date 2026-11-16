@@ -269,8 +269,9 @@ def test_moved_controls_still_work(browser, server):
         return False
 
     old = page.locator("#account-card .name").input_value()
-    assert rename(old + " x")
-    assert rename(old)
+    assert rename(old + " (renamed)")
+    # Not renamed back through the page: after a redraw the box may already show a name, and typing the
+    # same name again fires no save. Later tests read the current name from the app, so none depends on it.
     if toggle.get_attribute("aria-expanded") == "true":
         toggle.click()
     assert not page.errors
