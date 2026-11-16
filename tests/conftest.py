@@ -16,6 +16,20 @@ HAS_FFMPEG = shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is n
 needs_ffmpeg = pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg and ffprobe required")
 
 
+@pytest.fixture(autouse=True)
+def _chrome_not_running(request, monkeypatch):
+    """Tests never depend on whether Chrome happens to be open on the machine running them.
+
+    On a Windows PC with Chrome open, the real check (D-030) would refuse every Chrome add.
+    Tests that need "Chrome is open" set it themselves; the test of the check itself runs it for real.
+    """
+    if request.node.name.startswith("test_chrome_running_check"):
+        return
+    from nlh import adapter
+
+    monkeypatch.setattr(adapter, "chrome_running", lambda: False)
+
+
 @pytest.fixture
 def home(tmp_path, monkeypatch):
     """A fresh app home for one test."""
