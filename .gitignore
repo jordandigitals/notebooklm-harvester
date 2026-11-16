@@ -48,5 +48,5 @@ desktop.ini
 *.disabled
 *.bak
 
-# Built manual (published to MEGA and Drive, not kept in git)
+# Built manual (published as a release asset, not kept in git)
 docs/manual/*.pdf

@@ -1512,7 +1512,7 @@ def serve(open_browser: bool = True) -> int:
     app.config["stop"] = server.shutdown
     cfg = app_settings.load()
     # Stays on across restarts until turned off (D-026), but only on the network it was turned on
-    # in: on another network (a cafe, a VPN) the person turns it on again himself.
+    # in: on another network (a cafe, a VPN) the person turns it on again themselves.
     if cfg["phone_enabled"] and phone.lan_address() and phone.lan_address() == cfg["phone_address"]:
         phones = app.config["PHONES"]
         err = phones.start(app, cfg["phone_port"] or 0)

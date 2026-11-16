@@ -249,7 +249,7 @@ class StudioRunner:
                 self.led.update_queue(item["id"], state="failed", finished_at=now(), message=exc.message)
             else:
                 # The request may have reached NotebookLM before the error: never offer a blind
-                # resend. the person checks NotebookLM first (the same state as after a crash).
+                # resend. The person checks NotebookLM first (the same state as after a crash).
                 self.led.update_queue(
                     item["id"],
                     state="needs_review",

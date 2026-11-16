@@ -1,5 +1,6 @@
 """R12 machine independence, R13 portable mode, R14 Scan folder."""
 
+import os
 import re
 import shutil
 from pathlib import Path
@@ -13,7 +14,11 @@ SRC = Path(__file__).resolve().parent.parent / "nlh"
 
 
 def test_no_hardcoded_user_paths_or_drive_letters():
-    bad = re.compile(r"/Users/|/home/[a-z]|[A-Z]:\\\\", re.I)
+    # The user name of whoever runs the tests is checked too, without naming anyone here.
+    # (Skipped on CI, where the user is "runner", a word the code itself uses.)
+    me = "" if os.environ.get("CI") else os.environ.get("USER") or os.environ.get("USERNAME") or ""
+    names = [re.escape(part) for part in re.split(r"[.\s]+", me) if len(part) >= 4]
+    bad = re.compile(r"/Users/|/home/[a-z]|[A-Z]:\\\\" + "".join(f"|{n}" for n in names), re.I)
     hits = [
         f"{p.name}:{n}"
         for p in SRC.rglob("*.py")

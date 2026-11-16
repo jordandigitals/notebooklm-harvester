@@ -1,6 +1,6 @@
 """Demo mode (NLH_DEMO=1): synthetic accounts, notebooks and overviews, no network.
 
-Used for every screenshot, UI test and relay evidence (the repo is public, so no real
+Used for every screenshot, UI test and report screenshot (the repo is public, so no real
 titles, emails or ids may appear anywhere). Demo mode:
 - points the app home at a fresh temporary folder (never the real ledger or sessions);
 - seeds the ledger with generated accounts, listings, saved files, failures and gaps;

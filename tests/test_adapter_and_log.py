@@ -19,7 +19,7 @@ def test_chrome_profiles_names_and_emails_only(tmp_path):
                 "profile": {
                     "info_cache": {
                         "Default": {"name": "Your Chrome", "user_name": ""},
-                        "Profile 2": {"name": "the person", "user_name": "j@example.com"},
+                        "Profile 2": {"name": "Alex", "user_name": "j@example.com"},
                         "Profile 1": {"name": "Other", "user_name": "o@example.com"},
                     }
                 }
@@ -29,7 +29,7 @@ def test_chrome_profiles_names_and_emails_only(tmp_path):
     got = adapter.list_chrome_profiles(ls)
     assert [(p.folder, p.name, p.email) for p in got] == [
         ("Profile 1", "Other", "o@example.com"),
-        ("Profile 2", "the person", "j@example.com"),
+        ("Profile 2", "Alex", "j@example.com"),
     ]
 
 

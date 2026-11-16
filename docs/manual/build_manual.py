@@ -8,6 +8,8 @@ Letter portrait; images are compressed (JPEG) so the PDF stays small enough for 
 from __future__ import annotations
 
 import io
+import json
+import os
 import sys
 from datetime import date
 from pathlib import Path
@@ -40,12 +42,29 @@ from nlh import __version__ as APP_VERSION  # noqa: E402
 
 MANUAL_VERSION = "v2"
 BUILT = date.today().strftime("%d %b %Y").lstrip("0")
-# Two editions from one source: "full" (the owner's copy, as before) and "public" (for the GitHub release:
-# no owner-specific content such as other-account mentions, other people's PCs, pending items or
-# personal status). Usage: python -m docs.manual.build_manual [--public] [out.pdf]
-_args = [a for a in sys.argv[1:] if a != "--public"]
-PUBLIC = "--public" in sys.argv[1:]
+# Two editions from one source. "public" (the GitHub release) is built from this file alone. "full" is the
+# owner's copy: it also needs a private JSON file kept OUTSIDE this public repo (--private PATH, or the
+# NLH_MANUAL_PRIVATE environment variable) that holds the owner-only wording, keyed as in own() below.
+# Nothing private lives in this repo. Usage:
+#   python -m docs.manual.build_manual --public [out.pdf]
+#   python -m docs.manual.build_manual --private PATH [out.pdf]
+_argv = sys.argv[1:]
+PUBLIC = "--public" in _argv
+_private_path = os.environ.get("NLH_MANUAL_PRIVATE", "")
+if "--private" in _argv:
+    _i = _argv.index("--private")
+    _private_path = _argv[_i + 1] if _i + 1 < len(_argv) else ""
+    del _argv[_i : _i + 2]
+_args = [a for a in _argv if a != "--public"]
 EDITION = "public" if PUBLIC else "full"
+PRIVATE: dict = {}
+if not PUBLIC:
+    if not _private_path or not Path(_private_path).is_file():
+        sys.exit(
+            "The full edition needs the owner's private text file (--private PATH or NLH_MANUAL_PRIVATE). "
+            "Build the public edition with --public."
+        )
+    PRIVATE = json.loads(Path(_private_path).read_text(encoding="utf-8"))
 OUT = (
     Path(_args[0])
     if _args
@@ -53,9 +72,12 @@ OUT = (
 )
 
 
-def ed(full, public):
-    """The full edition's text, or the public edition's text (None leaves it out)."""
-    return public if PUBLIC else full
+def own(key, public):
+    """The owner's wording for key in the full edition (from the private file), else the public one.
+
+    A missing key falls back to the public wording; None leaves the item out.
+    """
+    return public if PUBLIC else PRIVATE.get(key, public)
 
 
 BLUE = colors.HexColor("#1d5bb8")
@@ -388,7 +410,7 @@ def build():
     S += [P("What it is not", h2)]
     S += bullets(
         [
-            *([] if PUBLIC else ["Not part of any other tool: no shared code, accounts or server."]),
+            *([own("not-part-of", None)] if own("not-part-of", None) else []),
             "Not a cloud service or a phone app. It runs on your laptop. No tracking of any kind.",
             "Not a way around Google's limits. It uses your own account for your own content.",
             "It never deletes, renames, edits or regenerates anything in NotebookLM. The only two things it ever writes there are a chat question and an audio overview you approved in Studio (Section 8).",
@@ -405,8 +427,8 @@ def build():
     S += [P("2. Installing and starting", h1)]
     S += [
         P(
-            ed(
-                "Each laptop gets its own copy and its own sign-in. Sign-ins are never copied between computers.",
+            own(
+                "install-copies",
                 "Each computer gets its own copy and its own sign-in. Sign-ins are never copied between computers.",
             )
         )
@@ -446,8 +468,8 @@ def build():
     S += wrong(
         "Windows Defender may report the Chrome sign-in reader as a threat the first time (it reads Chrome's saved Google sign-in on this computer). "
         "To allow it: Windows Security, Virus and threat protection, Protection history, select the entry, Actions, <b>Allow on device</b>. "
-        + ed(
-            "On a clean PC (one that has never run the app) this is <b>untested</b>.",
+        + own(
+            "defender-untested",
             "On a PC that has never run the app this is <b>untested</b>.",
         )
     )
@@ -525,8 +547,8 @@ def build():
         'Never sign in two accounts at the same moment. On Windows a very deep folder is refused with "This folder path is too long for Windows. Pick a shorter output folder."'
     )
     S += box(
-        ed(
-            'If another tool also uses one of your accounts, see below. In Settings you can tick "used by other automated tools" for an account; Studio then warns you when you pick it, and Studio never picks an account for you.',
+        own(
+            "other-tools-box",
             'If another tool also uses one of your accounts, tick "used by other automated tools" for it in Settings; Studio then warns you when you pick it, and Studio never picks an account for you.',
         ),
         "Accounts used by other tools",
@@ -845,8 +867,8 @@ def build():
         ]
     )
     S += box(
-        ed(
-            "A view-only share was checked live on 14 November (listed, one overview, downloaded). An editor share is <b>untested</b>; it does not change harvesting.",
+        own(
+            "shared-tested",
             "A view-only share was checked live (listed, one overview, downloaded). An editor share is <b>untested</b>; it does not change harvesting.",
         ),
         "Tested",
@@ -900,7 +922,7 @@ def build():
             "android-home-screen-icon",
             "The Harvester icon on the home screen.",
             PHONE,
-            ed(None, (0.27, 0.0, 0.53, 0.72)),
+            (0.27, 0.0, 0.53, 0.72) if PUBLIC else None,
         ),
         ("android-opened-from-icon", "Tapping it opens the paired page (in a Chrome tab).", PHONE, None),
     )
@@ -988,7 +1010,7 @@ def build():
             ["Harvester (Library, History, Stats, Settings)", "Done, Mac and Windows"],
             [
                 "Studio (plan, generate, save)",
-                ed("Done, checked live", "Done, checked live"),
+                own("studio-state", "Done, checked live"),
             ],
             ["Phone listening and home-screen shortcut", "Done, checked live on an Android phone"],
             ["Shared with me", "Done, view-only share checked live"],
@@ -1001,20 +1023,16 @@ def build():
             "iPhone: Add to Home Screen, play, and audio with the screen locked.",
             "An editor share (a notebook shared with you with edit rights).",
             "How long an own-window sign-in lasts untouched (measured before watch mode is built).",
-            ed(
-                "Windows Defender and SmartScreen on a clean PC (one that has never run the app).",
+            own(
+                "defender-untested-list",
                 "Windows Defender and SmartScreen on a PC that has never run the app.",
             ),
         ]
     )
-    if not PUBLIC:  # owner's pending items stay out of the public edition
+    waiting = own("waiting-on-you", None)  # the owner's pending items (private file only)
+    if waiting:
         S += [P("Waiting on you", h2)]
-        S += bullets(
-            [
-                "A short check on the Mac: open the app, search, harvest one new overview and play it; in Settings, Phone, pair with the QR and play one of your own overviews with the screen locked; in Studio, ask one notebook for a plan, make one overview and play it.",
-                "On Windows, the same phone steps, choosing Allow on the firewall prompt.",
-            ]
-        )
+        S += bullets(waiting)
     S += [P("What comes next", h2)]
     S += bullets(
         [
@@ -1067,8 +1085,8 @@ def build():
             ["Studio row says Check needed", "Press Check NotebookLM. It looks without writing anything."],
             [
                 "Nothing works after a long time",
-                ed(
-                    "Google may have changed something the library relies on. Report it and include Settings, Diagnostics.",
+                own(
+                    "help-row",
                     "Google may have changed something the library relies on. Open an issue on the GitHub repository and include Settings, Diagnostics.",
                 ),
             ],
@@ -1076,8 +1094,8 @@ def build():
         [2.4, 4.1],
     )
     S += box(
-        ed(
-            "Describe the problem in a GitHub issue. Settings, Diagnostics gives facts that are safe to share.",
+        own(
+            "help-box",
             "Open an issue on the GitHub repository (jordandigitals/notebooklm-harvester). Settings, Diagnostics gives facts that are safe to share.",
         ),
         "Getting help",
@@ -1115,23 +1133,15 @@ def build():
     S += table(
         [
             ["What", "Where"],
-            *(
+            *own(
+                "where-things-are",
                 [
                     ["This manual", "GitHub, jordandigitals/notebooklm-harvester, Releases"],
                     [
                         "Code and the manual's source",
                         "GitHub, jordandigitals/notebooklm-harvester (docs/manual)",
                     ],
-                ]
-                if PUBLIC
-                else [
-                    ["Packages and this manual", "(the owner's private folder)"],
-                    [
-                        "Code and the manual's source",
-                        "GitHub, jordandigitals/notebooklm-harvester (docs/manual)",
-                    ],
-                    ["Project notes and decisions", "Google Drive, projects / notebooklm-harvester"],
-                ]
+                ],
             ),
         ],
         [2.4, 4.1],

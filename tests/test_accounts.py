@@ -6,7 +6,7 @@ from nlh import accounts, adapter, paths
 from nlh.adapter import ChromeProfile, SessionStatus
 
 PROFILES = [
-    ChromeProfile("Profile 2", "the person", "j@example.com"),
+    ChromeProfile("Profile 2", "Alex", "j@example.com"),
     ChromeProfile("Profile 6", "Second", "s@example.com"),
 ]
 
@@ -49,7 +49,7 @@ def test_add_two_accounts_from_chrome(ledger, fake):
     a2, _ = accounts.add_from_chrome(ledger, "Profile 6")
     assert a1.profile_name == "acct-j" and a2.profile_name == "acct-s"
     assert (a1.label, a1.email, a1.chrome_profile, a1.last_status) == (
-        "the person",
+        "Alex",
         "j@example.com",
         "Profile 2",
         "ok",

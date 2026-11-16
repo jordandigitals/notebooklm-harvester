@@ -1,4 +1,4 @@
-/* NotebookLM Harvester. One accent (blue, the person 2026-11-14; green kept only for saved/OK states), 4 px spacing grid, system fonts, light and dark.
+/* NotebookLM Harvester. One accent (blue since 2026-11-14; green kept only for saved/OK states), 4 px spacing grid, system fonts, light and dark.
    No inline styles in markup; JavaScript only sets custom properties for sizes. */
 
 :root {

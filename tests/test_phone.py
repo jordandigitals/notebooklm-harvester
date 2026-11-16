@@ -64,8 +64,8 @@ def test_pairing_code_single_use_and_expiry(home):
     st = phone.PhoneState(clock=Clock())
     code, ttl = st.new_code()
     assert ttl == 300 and st.code_valid(code)
-    token = st.pair(code, "  the person's   phone ")
-    assert token and st.device_for(token).name == "the person's phone"
+    token = st.pair(code, "  Alex's   phone ")
+    assert token and st.device_for(token).name == "Alex's phone"
     assert st.pair(code, "again") is None  # single use
     code2, _ = st.new_code()
     st.clock.t += 301
