@@ -343,3 +343,20 @@ def test_sign_in_again_on_chrome_account_without_a_browser_says_so(client, ledge
     _, c = client
     r = c.post(f"/api/accounts/{acct.id}/signin", headers=H)
     assert r.status_code == 400 and r.get_json()["error"] == adapter.NO_BROWSER_MESSAGE
+
+
+def test_page_did_not_load_reaches_the_job_text(client, ledger, monkeypatch):
+    """D-034: when Google's page fails twice, the person reads a plain line in the job, then it is cleared."""
+    monkeypatch.setattr(adapter, "signin_browser", lambda: "chrome")
+
+    def window(name, *a, **k):
+        adapter._note(adapter.PAGE_DID_NOT_LOAD)
+        return adapter.SessionStatus("needs_sign_in", "Google sign-in was not finished.")
+
+    monkeypatch.setattr(adapter, "login_interactive", window)
+    _, c = client
+    r = c.post("/api/accounts/signin", headers=H, json={})
+    job = _wait(c, r.get_json()["id"])
+    assert job["state"] == "failed"
+    assert adapter.PAGE_DID_NOT_LOAD in job["lines"]
+    assert adapter._signin_note is None  # the hook never outlives the job

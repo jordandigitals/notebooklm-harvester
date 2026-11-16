@@ -559,3 +559,109 @@ def test_own_window_session_file_is_owner_only(home, monkeypatch, tmp_path):
     assert adapter.login_interactive("acct-x", 5).ok
     assert adapter.paths.storage_path("acct-x").stat().st_mode & 0o777 == 0o600
     assert adapter.paths.profile_dir("acct-x").stat().st_mode & 0o777 == 0o700
+
+
+# ---------------------------------------------------------------- D-034: failed first load
+
+_SIGNIN = "https://accounts.google.com/ServiceLogin?continue=x"
+
+
+class _FlakyPage(_FakePage):
+    """Google's page fails to load the first `fails` times (as on an unsteady connection)."""
+
+    def __init__(self, fails):
+        super().__init__("about:blank")
+        self.fails = fails
+        self.tries = 0
+
+    def goto(self, url, **kw):
+        if "accounts.google.com" in url:
+            self.tries += 1
+            self.kw = kw
+            if self.tries <= self.fails:
+                msg = f"net::ERR_CONNECTION_RESET at {_SIGNIN}\nCall log: navigating to {_SIGNIN}"
+                raise RuntimeError(msg)
+            self.visited.append(url)
+            self.url = "https://gds.google.com/web/chip"
+            return
+        super().goto(url, **kw)
+
+
+class _LaterSignIn(_FakeContext):
+    """No sign-in cookie until the person has signed in (after a few checks), even if the page failed."""
+
+    def __init__(self, page, signed_after=3):
+        super().__init__(page)
+        self.calls = 0
+        self.after = signed_after
+
+    def cookies(self, url):
+        self.calls += 1
+        if self.calls <= self.after:
+            return [{"name": "NID", "expires": 5}]
+        return [{"name": "SID", "expires": 200}, {"name": "NID", "expires": 5}]
+
+
+def _capture_log(monkeypatch):
+    lines = []
+    monkeypatch.setattr(adapter.log, "info", lambda msg, *a: lines.append(msg % a if a else msg))
+    return lines
+
+
+def test_first_load_retries_once_then_proceeds(home, monkeypatch):
+    """One failed load, then a good one: the sign-in carries on normally, with a lenient first load."""
+    page = _FlakyPage(fails=1)
+    _fake_playwright(monkeypatch, _LaterSignIn(page))
+    logs = _capture_log(monkeypatch)
+    notes = []
+    adapter.set_signin_note(notes.append)
+    try:
+        assert adapter._google_signin_window("acct-x", 30) is True
+    finally:
+        adapter.set_signin_note(None)
+    assert page.tries == 2 and page.kw.get("wait_until") == "commit"
+    assert notes == []  # the retry worked: nothing to tell the person
+    assert any("load 1 failed: RuntimeError net::ERR_CONNECTION_RESET" in ln for ln in logs)
+
+
+def test_two_failed_loads_keep_the_window_open_and_say_so(home, monkeypatch):
+    """Both loads fail: the window stays, the person is told plainly, and signing in still completes."""
+    page = _FlakyPage(fails=99)
+    ctx = _LaterSignIn(page, signed_after=5)
+    _fake_playwright(monkeypatch, ctx)
+    logs = _capture_log(monkeypatch)
+    notes = []
+    adapter.set_signin_note(notes.append)
+    try:
+        assert adapter._google_signin_window("acct-x", 30) is True  # the person pressed reload and signed in
+    finally:
+        adapter.set_signin_note(None)
+    assert page.tries == 2  # one retry, never a loop of reloads
+    assert notes == [adapter.PAGE_DID_NOT_LOAD]
+    assert "did not load" in adapter.PAGE_DID_NOT_LOAD and "http" not in adapter.PAGE_DID_NOT_LOAD
+    assert page.visited[-1] == adapter.notebooklm_url()
+    joined = "\n".join(logs)
+    assert "net::ERR_CONNECTION_RESET" in joined
+    assert "accounts.google.com" not in joined and "ServiceLogin" not in joined and "Call log" not in joined
+
+
+def test_two_failed_loads_then_window_closed_ends_cleanly(home, monkeypatch):
+    """Both loads fail and the person closes the window: the wait ends at once with False."""
+    page = _FlakyPage(fails=99)
+    ctx = _LaterSignIn(page, signed_after=10**6)
+
+    def close_after_note(text):
+        ctx.pages.clear()
+
+    _fake_playwright(monkeypatch, ctx)
+    adapter.set_signin_note(close_after_note)
+    try:
+        assert adapter._google_signin_window("acct-x", 30) is False
+    finally:
+        adapter.set_signin_note(None)
+
+
+def test_load_error_keeps_only_class_and_net_code():
+    exc = RuntimeError(f"net::ERR_NAME_NOT_RESOLVED at {_SIGNIN} for someone@example.com")
+    assert adapter._load_error(exc) == "RuntimeError net::ERR_NAME_NOT_RESOLVED"
+    assert adapter._load_error(TimeoutError("Timeout 30000ms exceeded. navigating to x")) == "TimeoutError"

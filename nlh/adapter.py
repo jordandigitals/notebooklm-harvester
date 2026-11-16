@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -862,6 +863,56 @@ def google_signin_url() -> str:
 
 NUDGE_AFTER_S = 3  # grace after Google's sign-in cookie appears before taking the window to NotebookLM
 NUDGE_EVERY_S = 15
+# D-034: the first load of Google's page may fail on a slow or unsteady connection.
+FIRST_LOAD_TIMEOUT_MS = 30000
+FIRST_LOAD_RETRY_S = 2
+PAGE_DID_NOT_LOAD = (
+    "Google's page did not load. Press reload in the Google window, or close it and try again."
+)
+_NET_CODE = re.compile(r"net::ERR_[A-Z0-9_]+")
+
+# Plain messages for the person while the sign-in window is open (D-034). The server points this
+# at the running job's lines; one sign-in runs at a time (accounts.SIGNIN_LOCK), so one hook is enough.
+_signin_note: Callable[[str], None] | None = None
+
+
+def set_signin_note(fn: Callable[[str], None] | None) -> None:
+    """Where sign-in messages for the person go (the job's lines), or None."""
+    global _signin_note
+    _signin_note = fn
+
+
+def _note(text: str) -> None:
+    """Tell the person something in the app, if a job is listening."""
+    if _signin_note:
+        try:
+            _signin_note(text)
+        except Exception:  # a message must never break the sign-in
+            pass
+
+
+def _load_error(exc: Exception) -> str:
+    """Error class plus only the net::ERR_ code: never the address, an email or page text (D-034)."""
+    m = _NET_CODE.search(str(exc))
+    return f"{type(exc).__name__} {m.group(0)}" if m else type(exc).__name__
+
+
+def _first_load(page) -> bool:
+    """Open Google's sign-in page, leniently (D-034).
+
+    Waits only for the page to start arriving (commit), not for it to finish. On failure it
+    waits a moment and tries once more. Returns False when both tries failed; the caller then
+    keeps the window open so the person can press reload in it.
+    """
+    for attempt in (1, 2):
+        try:
+            page.goto(google_signin_url(), wait_until="commit", timeout=FIRST_LOAD_TIMEOUT_MS)
+            return True
+        except Exception as exc:
+            log.info("sign-in page load %d failed: %s", attempt, _load_error(exc))
+            if attempt == 1:
+                time.sleep(FIRST_LOAD_RETRY_S)
+    return False
 
 
 def _google_signin_window(profile_name: str, timeout_s: int, channel: str = "chrome") -> bool:
@@ -911,7 +962,10 @@ def _google_signin_window(profile_name: str, timeout_s: int, channel: str = "chr
         try:
             at_launch = sid_marks()  # cookies left from an earlier sign-in may be stale
             page = ctx.pages[0] if ctx.pages else ctx.new_page()
-            page.goto(google_signin_url())
+            if not _first_load(page) and ctx.pages:
+                # Both tries failed but the window is still open: keep waiting (the person can
+                # press reload; the cookie check below still ends the wait once signed in).
+                _note(PAGE_DID_NOT_LOAD)
             while time.monotonic() < deadline:
                 pages = list(ctx.pages)  # one snapshot: tabs can close between reads
                 if not pages:

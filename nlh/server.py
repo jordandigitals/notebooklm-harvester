@@ -531,7 +531,11 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
 
         def run(job):
             job.lines.append("A Google window is opening. Sign in there.")
-            acct, _ = accounts.add_interactive(led, label)
+            adapter.set_signin_note(job.lines.append)  # D-034: "Google's page did not load..."
+            try:
+                acct, _ = accounts.add_interactive(led, label)
+            finally:
+                adapter.set_signin_note(None)
             job.account_id = acct.id
             job.message = f"Added {acct.label}."
 
@@ -558,7 +562,11 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
         def run(job):
             if accounts.uses_own_signin(acct):
                 job.lines.append("A Google window is opening. Sign in there.")
-            st = accounts.sign_in_again(led, acct)
+            adapter.set_signin_note(job.lines.append)  # D-034: "Google's page did not load..."
+            try:
+                st = accounts.sign_in_again(led, acct)
+            finally:
+                adapter.set_signin_note(None)
             job.message = st.message
             if not st.ok:
                 job.state = "failed"

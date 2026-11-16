@@ -1,6 +1,6 @@
 [project]
 name = "notebooklm-harvester"
-version = "0.4.3"
+version = "0.4.4"
 description = "Harvest NotebookLM Audio Overviews to MP3 (read-only toward NotebookLM)."
 requires-python = ">=3.11"
 
