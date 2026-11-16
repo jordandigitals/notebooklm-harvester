@@ -200,6 +200,8 @@ def capture(s: Shots):
     pg = s.page(ready="#vspacer .vrow")
     pg.locator("#acct-list .acct").first.click()
     pg.wait_for_selector("#account-card button", timeout=20000)
+    if pg.locator("#account-card .card-toggle").get_attribute("aria-expanded") != "true":
+        pg.click("#account-card .card-toggle")  # More open: every control in the picture (D-032)
     s.save(
         pg,
         "03-account-card",
@@ -265,10 +267,10 @@ def capture(s: Shots):
         pg.locator("#vspacer .vrow input[type=checkbox]").nth(i).check()
     pg.click("#sel-harvest")
     pg.wait_for_selector("#job-box .job", timeout=20000)
+    if pg.locator("#job-box .job-toggle").get_attribute("aria-expanded") != "true":
+        pg.click("#job-box .job-toggle")  # Details open: each item's step (D-032)
     pg.wait_for_timeout(1500)
-    s.save(
-        pg, "10-harvest-queue", marks=[("#job-box button:has-text('Cancel')", 1, "left")], crop=["#job-box"]
-    )
+    s.save(pg, "10-harvest-queue", marks=[("#job-box button:has-text('Stop')", 1, "left")], crop=["#job-box"])
     pg.wait_for_function("!document.querySelector('#job-box .pill.st-running')", timeout=120000)
     pg.context.close()
 

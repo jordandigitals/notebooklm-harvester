@@ -526,11 +526,12 @@ def build():
     )
     S += pic(
         "03-account-card",
-        "The account card: (1) Choose folder, (2) Refresh notebooks, (3) Scan folder.",
+        "The account card with More open: (1) Choose folder, (2) Refresh notebooks, (3) Scan folder.",
         max_h=2.2,
     )
     S += steps(
         [
+            "The card is one line: the account, whether it is signed in, where it saves, and <b>Refresh notebooks</b>. Press <b>More</b> for the rest (Check sign-in, Choose folder, Open, Scan folder). The app remembers whether More is open; until a folder is chosen the card stays open.",
             "Press <b>Choose folder</b> and pick where this account's MP3s go. Any folder works, including one that Google Drive, MEGA or OneDrive syncs.",
             "Press <b>Refresh notebooks</b> to read this account's notebooks (or <b>Refresh all accounts</b> above).",
             "<b>Scan folder</b> finds MP3s this app saved before, for example on another computer, so they are not downloaded again.",
@@ -628,12 +629,13 @@ def build():
     )
     S += pic(
         "10-harvest-queue",
-        "The queue while harvesting: each item's step, and Cancel at the top right.",
+        "The harvest line while harvesting: the counts, (1) Stop, and Details open to show each item's step.",
         max_h=2.2,
     )
     S += bullets(
         [
-            "The queue shows each item, time left, <b>Cancel</b> (stops after the step in progress, leaving nothing half-saved), <b>Retry failed</b> and <b>Clear finished</b>.",
+            "One line shows what runs and the counts, with <b>Stop</b> (stops after the step in progress, leaving nothing half-saved), <b>Details</b> (each item and the time left), <b>Retry failed</b> and <b>Clear finished</b>. Details stays open or closed as you left it.",
+            "The whole Library page scrolls. While a harvest runs, its line stays at the top under the sort and group bar; when it is done it scrolls away with the page.",
             'Harvesting twice never downloads twice. A name clash gets " (2)", never an overwrite.',
         ]
     )
