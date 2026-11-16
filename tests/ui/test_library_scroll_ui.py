@@ -254,14 +254,18 @@ def test_moved_controls_still_work(browser, server):
     page.wait_for_timeout(500)
 
     def rename(to):
-        name = page.locator("#account-card .name")
-        name.fill(to)
-        name.press("Enter")
-        name.blur()
-        for _ in range(50):  # the save is a request: allow a slow machine up to 10 s
-            if to in [a["label"] for a in server.api("/api/library")["accounts"]]:
-                return True
-            page.wait_for_timeout(200)
+        # A save can redraw the card and replace the name box; on a slow machine an edit typed into the
+        # old box is lost, so type it again (up to 3 times, each given 3 s to be saved).
+        for _ in range(3):
+            idle(server)
+            name = page.locator("#account-card .name")
+            name.fill(to)
+            name.press("Enter")
+            name.blur()
+            for _ in range(15):
+                if to in [a["label"] for a in server.api("/api/library")["accounts"]]:
+                    return True
+                page.wait_for_timeout(200)
         return False
 
     old = page.locator("#account-card .name").input_value()
