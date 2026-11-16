@@ -60,9 +60,9 @@ def test_queue_cancel_leaves_nothing_then_retry_and_clear(browser, server):
     page.click("#sel-harvest")
     if page.locator("dialog[open]").count():
         page.locator("dialog[open] .btn-primary").click()
-    page.wait_for_selector("section.job button:has-text('Cancel')", timeout=15000)
+    page.wait_for_selector("section.job button:has-text('Stop')", timeout=15000)
     page.wait_for_timeout(2500)
-    page.locator("section.job button:has-text('Cancel')").click()
+    page.locator("section.job button:has-text('Stop')").click()
     page.wait_for_selector("section.job button:has-text('Clear finished')", timeout=120000)
     after = rows_by_id(server)
     newly = {k for k, r in after.items() if r["status"] == "saved" and before[k]["status"] != "saved"}
@@ -182,6 +182,8 @@ def test_retry_failed_reruns_exactly_the_failures(browser, server):
     assert failed == len(runnable)  # every glacier title fails in demo mode
     assert all(by_id[a]["status"] == "failed" for a in runnable)
     if len(runnable) < len(picked):
+        if page.locator("section.job .job-toggle").get_attribute("aria-expanded") != "true":
+            page.locator("section.job .job-toggle").click()  # the per-item list sits under Details (D-032)
         assert "Not started" in page.inner_text("section.job")
     retry.click()
     page.locator("section.job button:has-text('Retry')").wait_for(timeout=180000)

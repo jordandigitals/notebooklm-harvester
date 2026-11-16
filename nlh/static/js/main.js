@@ -12,7 +12,7 @@ import { renderHistory, hist, historyHooks } from "./history.js";
 import { renderStats } from "./stats.js";
 import { renderStudio, studioHooks } from "./studio.js";
 import { playerState, togglePlay } from "./player.js";
-import { renderQueue, retryItems } from "./queue.js";
+import { renderQueue, retryItems, setQueuePrefs } from "./queue.js";
 import { renderSettings, applyTheme, prefs } from "./settings.js";
 import { closeDrawer } from "./drawer.js";
 import { encode, decode, hasState } from "./urlstate.js";
@@ -225,6 +225,11 @@ async function init() {
   prefs.version = st.version;
   applyTheme(app.settings.theme);
   acctState.defaultOutput = app.settings.default_output || "";
+  // D-032: the account card's More part and the harvest Details stay as the person left them.
+  const rememberFlag = (key) => (value) => api("/api/settings", { method: "POST", body: { [key]: value } }).catch(() => {});
+  acctState.cardOpen = Boolean(app.settings.account_card_open);
+  acctState.saveCardOpen = rememberFlag("account_card_open");
+  setQueuePrefs(app.settings.job_details_open, rememberFlag("job_details_open"));
   lib.startJob = startJob;
   adjustAddPanel();
 

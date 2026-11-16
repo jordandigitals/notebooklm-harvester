@@ -579,7 +579,9 @@ def capture(out_dir: Path, prefix: str) -> list[str]:
                 "filtered-grouped",
                 "light",
                 query="status=new,failed&group=notebook&q=garden",
-                setup=lambda pg: pg.evaluate("document.getElementById('vlist').scrollTop = 300"),
+                setup=lambda pg: pg.evaluate(
+                    "document.querySelector('#view-library .content').scrollTop = 300"
+                ),
             )
         )
         made.append(

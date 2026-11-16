@@ -1,6 +1,6 @@
 // Harvest queue panel: each item's status (waiting, downloading with MB, converting with
 // percent, saving, saved, failed with reason), elapsed time and a plain estimate of time
-// left, Cancel (finishes the current safe step), Retry failed and Clear finished.
+// left, Stop (finishes the current safe step), Retry failed and Clear finished.
 import { api } from "./api.js";
 import { $, el, icon, button, plural } from "./dom.js";
 
@@ -21,32 +21,92 @@ export function estimate(job) {
   return (job.elapsed_s / done) * (items.length - done);
 }
 
-/** Draw the queue for a job (running, or the last finished one until cleared). */
+// Details open or closed is remembered in the app's settings (D-032); main.js passes it in.
+let detailsOpen = false;
+let saveDetails = () => {};
+
+/** Set whether Details starts open, and how to remember a change (called once by main.js). */
+export function setQueuePrefs(open, save) {
+  detailsOpen = Boolean(open);
+  if (save) saveDetails = save;
+}
+
+/** Counts for the one-line summary: "3 of 5 done · saved 2 · failed 1". */
+function summary(show, items, running) {
+  if (show.state === "queued") return "Waiting for the job before it to finish.";
+  if (show.kind !== "harvest") return show.message || (show.lines.length ? show.lines[show.lines.length - 1] : "");
+  const count = (o) => items.filter(([, i]) => i.outcome === o).length;
+  // Items left out by Stop are not "done": they are counted on their own.
+  const stopped = count("cancelled");
+  const done = items.filter(([, i]) => i.outcome && i.outcome !== "cancelled").length;
+  const parts = [`${done} of ${items.length} done`, `saved ${count("saved")}`];
+  if (count("skipped")) parts.push(`skipped ${count("skipped")}`);
+  parts.push(`failed ${count("failed")}`);
+  if (stopped) parts.push(`${stopped} not started (stopped)`);
+  if (running && done) {
+    const left = estimate(show);
+    if (left !== null) parts.push(`about ${mmss(left)} left`);
+  }
+  return parts.join(" · ");
+}
+
+/** Draw the queue for a job (running, or the last finished one until cleared).
+ *
+ * One compact line (D-032): what runs, its state, the counts, Stop or Retry and Clear finished,
+ * and Details, which opens the per-item list. While a job runs, #job-box is pinned under the
+ * toolbar (class is-pinned); a finished job scrolls with the page.
+ */
 export function renderQueue(job, { onRetry, onCancel } = {}) {
   const box = $("job-box");
   if (job && !["queued", "running"].includes(job.state) && job.kind === "harvest") finished = job;
   const show = job && ["queued", "running"].includes(job.state) ? job : finished;
-  if (!show) { box.replaceChildren(); return; }
+  if (!show) { box.replaceChildren(); box.classList.remove("is-pinned"); return; }
   const running = ["queued", "running"].includes(show.state);
+  box.classList.toggle("is-pinned", running);
   const card = el("section", "job");
   card.setAttribute("aria-label", "Harvest queue");
+  const items = Object.entries(show.items || {});
+  const failed = items.filter(([, i]) => i.outcome === "failed");
+
   const head = el("div", "job-head");
-  head.append(el("span", "grow", show.title));
+  const title = el("span", "grow job-title", show.title);
+  title.title = show.title;
+  head.append(title);
   const JOB_TEXT = { queued: "Waiting", running: "Working", done: "Done", failed: "Finished with problems", cancelled: "Cancelled" };
   const pillText = show.cancelling ? "Stopping after this step" : JOB_TEXT[show.state] || show.state;
   head.append(el("span", `pill st-${show.cancelling ? "running" : show.state}`, pillText));
+  const sum = el("span", "hint job-sum", summary(show, items, running));
+  head.append(sum);
+  const actions = el("span", "job-actions");
+  const hasDetails = show.kind === "harvest" && items.length > 0;
+  let details = null;
+  if (hasDetails) {
+    details = el("div", "job-details");
+    details.id = "job-details";
+    const toggle = button("Details", { cls: "btn btn-sm btn-ghost job-toggle", iconName: "chevron" });
+    toggle.setAttribute("aria-controls", "job-details");
+    toggle.setAttribute("aria-expanded", String(detailsOpen));
+    toggle.addEventListener("click", () => {
+      detailsOpen = !detailsOpen;
+      toggle.setAttribute("aria-expanded", String(detailsOpen));
+      details.hidden = !detailsOpen;
+      saveDetails(detailsOpen);
+    });
+    actions.append(toggle);
+  }
   if (running && show.kind === "harvest" && !show.cancelling) {
-    head.append(button("Cancel", { cls: "btn btn-sm", iconName: "x", onClick: () => onCancel && onCancel(show) }));
+    const stop = button("Stop", { cls: "btn btn-sm", iconName: "x", onClick: () => onCancel && onCancel(show) });
+    stop.title = "Stop after the current step (nothing is left half-saved)";
+    actions.append(stop);
   }
-  const items = Object.entries(show.items || {});
-  const failed = items.filter(([, i]) => i.outcome === "failed");
   if (!running && failed.length && onRetry) {
-    head.append(button(`Retry ${plural(failed.length, "failed item")}`, { cls: "btn btn-sm btn-primary", iconName: "refresh", onClick: () => onRetry(show, failed) }));
+    actions.append(button(`Retry ${plural(failed.length, "failed item")}`, { cls: "btn btn-sm btn-primary", iconName: "refresh", onClick: () => onRetry(show, failed) }));
   }
-  if (!running) head.append(button("Clear finished", { cls: "btn btn-sm btn-ghost", onClick: () => { finished = null; box.replaceChildren(); } }));
+  if (!running) actions.append(button("Clear finished", { cls: "btn btn-sm btn-ghost", onClick: () => { finished = null; box.replaceChildren(); box.classList.remove("is-pinned"); } }));
+  head.append(actions);
   card.append(head);
 
-  const bar = el("div", "bar");
+  const bar = el("div", "bar bar-thin");
   bar.setAttribute("role", "progressbar");
   bar.setAttribute("aria-label", show.title);
   const fill = el("span", "bar-fill");
@@ -60,21 +120,13 @@ export function renderQueue(job, { onRetry, onCancel } = {}) {
   bar.append(fill);
   card.append(bar);
 
-  const facts = el("p", "hint");
-  if (show.state === "queued") {
-    facts.textContent = "Waiting for the job before it to finish.";
-  } else if (show.kind === "harvest") {
+  if (details) {
+    details.hidden = !detailsOpen;
     const done = items.filter(([, i]) => i.outcome).length;
     const left = running ? estimate(show) : null;
-    facts.textContent = `${done} of ${items.length} done · ${mmss(show.elapsed_s || 0)} elapsed`
+    details.append(el("p", "hint", `${done} of ${items.length} done · ${mmss(show.elapsed_s || 0)} elapsed`
       + (left !== null ? ` · about ${mmss(left)} left` : running && !done ? " · estimating time left" : "")
-      + (show.message ? ` · ${show.message}` : "");
-  } else {
-    facts.textContent = show.message || (show.lines.length ? show.lines[show.lines.length - 1] : "");
-  }
-  card.append(facts);
-
-  if (show.kind === "harvest" && items.length) {
+      + (show.message ? ` · ${show.message}` : "")));
     const list = el("ol", "job-items");
     for (const [id, it] of items.slice(0, 200)) {
       const li = el("li");
@@ -95,7 +147,8 @@ export function renderQueue(job, { onRetry, onCancel } = {}) {
       list.append(li);
     }
     if (items.length > 200) list.append(el("li", "hint", `${items.length - 200} more in this job.`));
-    card.append(list);
+    details.append(list);
+    card.append(details);
   }
   box.replaceChildren(card);
 }

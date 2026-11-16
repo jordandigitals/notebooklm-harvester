@@ -141,6 +141,18 @@ def test_settings_roundtrip_and_validation(home):
     assert "token" not in text and "cookie" not in text.lower()
 
 
+def test_library_layout_flags_are_remembered(home):
+    """D-032: the account card's More part and the harvest Details are on/off settings, closed by default."""
+    s = app_settings.load()
+    assert s["account_card_open"] is False and s["job_details_open"] is False
+    app_settings.save({"account_card_open": True, "job_details_open": True})
+    s = app_settings.load()
+    assert s["account_card_open"] is True and s["job_details_open"] is True
+    for bad in ({"account_card_open": "yes"}, {"job_details_open": 1}):
+        with pytest.raises(app_settings.SettingsError):
+            app_settings.save(bad)
+
+
 def test_unreachable_status_in_library(ledger, tmp_path):
     a = ledger.add_account("p1", "One")
     ledger.update_account(a.id, output_dir=str(tmp_path / "gone"))

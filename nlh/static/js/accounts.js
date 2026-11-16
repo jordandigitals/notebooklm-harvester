@@ -4,7 +4,7 @@ import { $, el, icon, button, pill, show, plural } from "./dom.js";
 import { toast, dialog } from "./ui.js";
 import { lib, apply, renderFilters } from "./library.js";
 
-export const acctState = { windows: false, interactive: true, startJob: null, busy: () => false, defaultOutput: "" };
+export const acctState = { windows: false, interactive: true, startJob: null, busy: () => false, defaultOutput: "", cardOpen: false, saveCardOpen: () => {} };
 
 /** Draw the sidebar account list. */
 export function renderAccountList() {
@@ -76,7 +76,12 @@ export function renderAccountCard() {
   }
   const a = lib.accounts.get(lib.account);
   if (!a) return;
+  // D-032: one compact line (name, sign-in state, short save folder, Refresh notebooks, More);
+  // More opens the rest (email, Check sign-in, full folder, Choose folder, Open, Scan folder).
+  // Without a folder the card stays open: harvesting needs one, so that step is never hidden.
   const card = el("div", "account-card");
+  const busy = acctState.busy();
+  const needsFolder = !a.output_dir;
   const head = el("div", "head");
   const name = el("input", "name");
   name.value = a.label;
@@ -86,24 +91,41 @@ export function renderAccountCard() {
     catch (e) { toast(e.message, "bad"); name.value = a.label; }
   });
   head.append(name, pill(a.status));
-  card.append(head);
-  card.append(el("p", "hint", [a.email, a.chrome_profile ? `Chrome ${a.chrome_profile}` : "Signed in directly"].filter(Boolean).join(" · ")));
-  const actions = el("div", "row");
-  const busy = acctState.busy();
+  const where = el("span", "hint card-folder", a.output_dir ? `Save to ${shortPath(a.output_dir)}` : "No folder chosen");
+  if (a.output_dir) where.title = a.output_dir;
+  head.append(where);
   const refresh = button("Refresh notebooks", { cls: "btn btn-sm", iconName: "refresh" });
   refresh.disabled = busy;
   refresh.addEventListener("click", () => acctState.startJob(api(`/api/accounts/${a.id}/refresh`, { method: "POST" })));
-  const check = button("Check sign-in", { cls: "btn btn-sm btn-ghost" });
-  check.disabled = busy;
-  check.addEventListener("click", () => acctState.startJob(api(`/api/accounts/${a.id}/check`, { method: "POST" })));
-  actions.append(refresh, check);
+  head.append(refresh);
   if (a.status !== "ok") {
     const again = button("Sign in again", { cls: "btn btn-sm btn-primary" });
     again.disabled = busy;
     again.addEventListener("click", () => acctState.startJob(api(`/api/accounts/${a.id}/signin`, { method: "POST" })));
-    actions.append(again);
+    head.append(again);
   }
-  card.append(actions);
+  const more = el("div", "card-more");
+  more.id = "account-more";
+  const open = acctState.cardOpen || needsFolder;
+  const toggle = button(open ? "Less" : "More", { cls: "btn btn-sm btn-ghost card-toggle", iconName: "chevron" });
+  toggle.setAttribute("aria-controls", "account-more");
+  toggle.setAttribute("aria-expanded", String(open));
+  toggle.addEventListener("click", () => {
+    const now = toggle.getAttribute("aria-expanded") !== "true";
+    acctState.cardOpen = now;
+    acctState.saveCardOpen(now);
+    toggle.setAttribute("aria-expanded", String(now));
+    toggle.lastChild.textContent = now ? "Less" : "More";
+    more.hidden = !now;
+  });
+  head.append(toggle);
+  card.append(head);
+
+  more.hidden = !open;
+  more.append(el("p", "hint", [a.email, a.chrome_profile ? `Chrome ${a.chrome_profile}` : "Signed in directly"].filter(Boolean).join(" · ")));
+  const check = button("Check sign-in", { cls: "btn btn-sm btn-ghost" });
+  check.disabled = busy;
+  check.addEventListener("click", () => acctState.startJob(api(`/api/accounts/${a.id}/check`, { method: "POST" })));
   const folder = el("div", "folder");
   folder.append(icon("folder"), el("span", "", "Save to"), el("code", "", a.output_dir || "No folder chosen"));
   const choose = button("Choose folder", { cls: "btn btn-sm" });
@@ -117,10 +139,19 @@ export function renderAccountCard() {
     scan.addEventListener("click", () => acctState.startJob(api(`/api/accounts/${a.id}/scan`, { method: "POST" })));
     folder.append(scan);
   }
-  card.append(folder);
-  if (!a.output_dir) card.append(notice("info", "Choose a folder before harvesting. Any folder works, including one synced by Google Drive, MEGA or OneDrive."));
+  folder.append(check);
+  more.append(folder);
+  card.append(more);
+  if (needsFolder) card.append(notice("info", "Choose a folder before harvesting. Any folder works, including one synced by Google Drive, MEGA or OneDrive."));
   if (a.long_folder) card.append(notice("warn", "This folder path is long for Windows. Titles are shortened automatically; a much deeper folder would be refused."));
   box.append(card);
+}
+
+/** The last two folders of a path, for the compact card ("...\Notebook Harvester\Work"). */
+function shortPath(path) {
+  const sep = path.includes("\\") ? "\\" : "/";
+  const parts = path.split(sep).filter(Boolean);
+  return parts.length <= 2 ? path : `...${sep}${parts.slice(-2).join(sep)}`;
 }
 
 function notice(kind, text) {

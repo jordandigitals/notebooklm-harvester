@@ -175,6 +175,7 @@ def test_phone_account_card_is_compact(browser, server):
     if toggle.count():
         toggle.click()
         assert page.locator(".card-notes").is_visible()
+        page.wait_for_timeout(200)  # the list re-measures and redraws its rows on the next frame (D-032)
     first_row_top = page.locator("#vspacer .vrow").first.bounding_box()["y"]
     assert first_row_top < 900 * 1.2  # the list starts within about one screen
     page.context.close()

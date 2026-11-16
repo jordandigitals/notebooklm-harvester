@@ -80,6 +80,9 @@ DEFAULTS = {
     "studio_shared_accounts": [],  # account ids marked "used by other automated tools"
     "studio_ask_warned": False,  # the one-time warning about chat messages was shown
     "studio_language": "en",
+    # Library layout (D-032): the account card's More part and the harvest Details stay as left.
+    "account_card_open": False,
+    "job_details_open": False,
 }
 # Keys the server sets itself (the generic settings route refuses them).
 SERVER_ONLY = frozenset({"phone_enabled", "phone_port", "phone_address"})
@@ -207,7 +210,7 @@ def validate(update: dict) -> dict:
             ):
                 raise SettingsError("The list of shared accounts is not valid.")
             value = sorted(set(value))
-        elif key == "studio_ask_warned":
+        elif key in ("studio_ask_warned", "account_card_open", "job_details_open"):
             if not isinstance(value, bool):
                 raise SettingsError("That setting must be on or off.")
         elif key == "studio_language":

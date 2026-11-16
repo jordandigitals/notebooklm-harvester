@@ -16,6 +16,53 @@ const SELECTABLE = new Set(["new", "failed", "saved_but_missing"]);
 const STATUS_LIST = ["new", "saved", "saved_but_missing", "folder_unreachable", "in_progress", "failed"];
 const BIG_HARVEST = 20;
 
+// ------------------------------------------------------------ page scroll (D-032)
+// The Library scrolls as one page: the content column is the scroll box, and the virtual list
+// works out its rows from the column's scroll position. Bars pinned at the top (the toolbar,
+// and the harvest line while it runs) are measured into --pin-h, which is also the column's
+// scroll padding, so keyboard focus and j/k never land under them.
+
+/** The Library's scroll box. */
+function scroller() { return document.querySelector("#view-library .content"); }
+
+/** Height of a bar if it is pinned (sticky) right now, else 0. */
+function stuck(node) {
+  return node && node.offsetHeight && getComputedStyle(node).position === "sticky" ? node.offsetHeight : 0;
+}
+
+/** Height of the bars pinned at the top of the column (0 on phones, where nothing is pinned).
+ * Also sets --bar-h (the toolbar alone), where the running harvest line pins itself. */
+function pinnedHeight(sc) {
+  const bar = stuck(document.querySelector("#view-library .toolbar"));
+  sc.style.setProperty("--bar-h", `${bar}px`);
+  return bar + stuck($("job-box"));
+}
+
+/** Height of a bar fixed or pinned at the bottom (the selection bar), so rows are not hidden under it. */
+function bottomHeight() {
+  const bar = $("actionbar");
+  return bar && !bar.classList.contains("is-hidden") ? bar.offsetHeight : 0;
+}
+
+/** Update the pinned height (CSS variables) and return the list's view in list pixels. */
+function listView() {
+  const sc = scroller(), list = $("vlist");
+  const pin = pinnedHeight(sc);
+  const bottom = bottomHeight();
+  sc.style.setProperty("--pin-h", `${pin}px`);
+  sc.style.setProperty("--pin-bottom", `${bottom}px`);
+  const listTop = list.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop;
+  const top = Math.max(0, sc.scrollTop + pin - listTop);
+  const end = Math.max(0, sc.scrollTop + sc.clientHeight - bottom - listTop);
+  return { sc, listTop, pin, bottom, top, h: Math.max(end - top, 0), scrolledIn: sc.scrollTop + pin > listTop };
+}
+
+/** Bring the start of the list into view (only if the page is already scrolled past it). */
+function scrollListToStart() {
+  const v = listView();
+  if (v.scrolledIn) v.sc.scrollTop = Math.max(0, v.listTop - v.pin);
+}
+
 export const lib = {
   rows: [],
   accounts: new Map(),
@@ -91,8 +138,7 @@ export function apply({ keepScroll = false } = {}) {
   const base = scopedRows();
   lib.filtered = base.filter((r) => matchesFilters(r, lib.filters, now)).sort(comparator(lib.sort));
   buildItems();
-  const list = $("vlist");
-  if (!keepScroll && list) list.scrollTop = 0;
+  if (!keepScroll && $("vlist")) scrollListToStart();
   render();
   renderChips();
   renderCounts();
@@ -177,14 +223,15 @@ export function render() {
     show($("backtop"), false);
     return;
   }
-  const top = list.scrollTop, h = list.clientHeight || 600;
+  const v = listView();
+  const top = v.top, h = v.h || 600;
   const start = Math.max(0, indexAt(top) - BUFFER);
   const end = Math.min(lib.items.length, indexAt(top + h) + BUFFER + 1);
   const frag = document.createDocumentFragment();
   for (let i = start; i < end; i++) frag.append(renderItem(lib.items[i], i));
   spacer.append(frag);
-  renderSticky(top);
-  show($("backtop"), top > 600);
+  renderSticky(v.scrolledIn ? top : 0);
+  show($("backtop"), v.sc.scrollTop > 600);
 }
 
 function onScroll() {
@@ -202,7 +249,6 @@ function renderSticky(top) {
   if (i < 0) return;
   const node = renderGroup(lib.items[i], i);
   node.classList.add("sticky-group");
-  node.style.setProperty("top", "0px");
   holder.append(node);
 }
 
@@ -701,10 +747,14 @@ export function moveFocus(delta) {
   let i = lib.focus;
   do { i = Math.max(0, Math.min(lib.items.length - 1, i + delta)); } while (lib.items[i].type !== "row" && i > 0 && i < lib.items.length - 1);
   lib.focus = i;
-  const list = $("vlist");
-  const y = lib.offsets[i];
-  if (y < list.scrollTop + GROUP_H) list.scrollTop = Math.max(0, y - GROUP_H);
-  else if (y + ROW_H > list.scrollTop + list.clientHeight) list.scrollTop = y + ROW_H - list.clientHeight;
+  // Keep the row clear of the pinned bars and, when grouped, the pinned group header.
+  const v = listView();
+  const head = lib.group === "none" ? 0 : GROUP_H;
+  const y = v.listTop + lib.offsets[i];
+  const visTop = v.sc.scrollTop + v.pin + head;
+  const visEnd = v.sc.scrollTop + v.sc.clientHeight - v.bottom;
+  if (y < visTop) v.sc.scrollTop = Math.max(0, y - v.pin - head);
+  else if (y + ROW_H > visEnd) v.sc.scrollTop = y + ROW_H - v.sc.clientHeight + v.bottom;
   render();
 }
 
@@ -722,9 +772,16 @@ export function openFocused() {
 
 /** Wire list events once. */
 export function initLibrary() {
-  $("vlist").addEventListener("scroll", onScroll, { passive: true });
+  scroller().addEventListener("scroll", onScroll, { passive: true });
   window.addEventListener("resize", onScroll);
-  $("backtop").addEventListener("click", () => { $("vlist").scrollTop = 0; $("vlist").focus(); });
+  // The pinned bars change height (the toolbar wraps, the harvest line appears or goes):
+  // re-measure so the list and the scroll padding follow.
+  if (window.ResizeObserver) {
+    const ro = new ResizeObserver(onScroll);
+    for (const id of ["job-box", "account-card", "actionbar"]) ro.observe($(id));
+    ro.observe(document.querySelector("#view-library .toolbar"));
+  }
+  $("backtop").addEventListener("click", () => { scroller().scrollTop = 0; $("vlist").focus({ preventScroll: true }); });
   $("group-toggle").addEventListener("click", () => {
     if (lib.collapsed.size) lib.collapsed.clear();
     else for (const it of lib.items) if (it.type === "group") lib.collapsed.add(it.group.key);
