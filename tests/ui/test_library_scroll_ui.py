@@ -66,6 +66,17 @@ def open_lib(browser, server, width=1280, height=720, scheme="light", touch=Fals
     return page
 
 
+def idle(server, timeout_s=60):
+    """Wait until the app runs no job (a finished job redraws the account card)."""
+    import time
+
+    end = time.time() + timeout_s
+    while time.time() < end:
+        if not any(j["state"] in ("queued", "running") for j in server.api("/api/state").get("jobs", [])):
+            return
+        time.sleep(0.3)
+
+
 def scroll_to(page, y):
     """Scroll the column and wait until the list has redrawn the rows for that place."""
     page.evaluate(f"{SC}.scrollTop = {y}")
@@ -238,20 +249,24 @@ def test_moved_controls_still_work(browser, server):
     page.wait_for_function("() => !document.querySelector('#account-more button').disabled", timeout=30000)
     more.locator("button:has-text('Scan folder')").click()
     page.locator(".toast").first.wait_for(timeout=30000)
-    name = page.locator("#account-card .name")
-    old = name.input_value()
-    name.fill(old + " x")
-    name.press("Enter")
-    name.blur()
-    page.wait_for_timeout(400)
-    acct = first_account(server)
-    labels = [a["label"] for a in server.api("/api/library")["accounts"]]
-    assert old + " x" in labels
-    name.fill(old)
-    name.press("Enter")
-    name.blur()
-    page.wait_for_timeout(400)
-    assert acct  # the account is still there
+    # When a job finishes the card redraws and replaces the name box, so rename only once no job runs.
+    idle(server)
+    page.wait_for_timeout(500)
+
+    def rename(to):
+        name = page.locator("#account-card .name")
+        name.fill(to)
+        name.press("Enter")
+        name.blur()
+        for _ in range(50):  # the save is a request: allow a slow machine up to 10 s
+            if to in [a["label"] for a in server.api("/api/library")["accounts"]]:
+                return True
+            page.wait_for_timeout(200)
+        return False
+
+    old = page.locator("#account-card .name").input_value()
+    assert rename(old + " x")
+    assert rename(old)
     if toggle.get_attribute("aria-expanded") == "true":
         toggle.click()
     assert not page.errors
