@@ -21,5 +21,10 @@ NotebookLM Harvester for Windows
    Continue with Google.
 
 Nothing else is needed: Python and ffmpeg are inside the app.
-To stop the app, press Quit on the page. Double-clicking it again opens the same page.
+To stop the app, close its window or press Quit on the page. If a harvest is running, closing
+asks first and then finishes the current file (Quit on the page waits until the job ends).
+Double-clicking the app again brings its window to the front.
 Your data (sign-ins, the list of saved files, the log) stays in %LOCALAPPDATA%\NLH.
+
+Updating: quit the app, then replace the "NotebookLM Harvester" folder with the new one. No copy
+of the old version is kept or needed. Your saved files, history and settings are not touched.
