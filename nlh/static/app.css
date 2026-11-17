@@ -80,6 +80,8 @@ button, input, select { font: inherit; color: inherit; }
 .searchbox > .icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
 .searchbox input { width: 100%; min-height: 40px; padding: 0 84px 0 38px; border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface-2); }
 .searchbox input:focus { background: var(--surface); border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+/* The app has its own clear button (#q-clear): hide the browser's, so there is one and it takes no room. */
+.searchbox input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; display: none; }
 .search-tools { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; gap: 2px; }
 .kbd { font: 11px/1 var(--mono); padding: 3px 5px; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 4px; color: var(--muted); background: var(--surface); }
 .banners { display: grid; gap: var(--s2); padding: 0 var(--s4); }
