@@ -39,6 +39,25 @@ def browser():
         b.close()
 
 
+@pytest.fixture
+def new_context(browser):
+    """Browser contexts closed after the test even when it fails (a page left playing would keep
+    saving positions into the next tests)."""
+    made = []
+
+    def make(**kw):
+        c = browser.new_context(**kw)
+        made.append(c)
+        return c
+
+    yield make
+    for c in made:
+        try:
+            c.close()
+        except Exception:
+            pass
+
+
 @pytest.fixture(scope="module")
 def srv():
     with DemoServer(rows=30, env=ENV) as s:
@@ -98,18 +117,18 @@ def wait_stored(srv, harvest_id, cond, timeout=6.0) -> float:
     return stored(srv, harvest_id)
 
 
-def test_seek_reload_resumes_five_seconds_back_with_the_line(browser, srv):
+def test_seek_reload_resumes_five_seconds_back_with_the_line(new_context, srv):
     row = first_row(srv)
     post(srv, row["id"], 0)
     time.sleep(1.1)
-    ctx = browser.new_context(viewport={"width": 1280, "height": 900})
+    ctx = new_context(viewport={"width": 1280, "height": 900})
     page = ctx.new_page()
     open_history(page, srv)
     play_first(page, srv, row)
     assert audio_time(page) < 5  # nothing saved: from the start
     seek(page, 100)
-    v = wait_stored(srv, row["id"], lambda x: 99 <= x <= 103)
-    assert 99 <= v <= 103, v  # the stored row, not the page
+    v = wait_stored(srv, row["id"], lambda x: 99 <= x <= 108)
+    assert 99 <= v <= 108, v  # the stored row, not the page (playback moves on meanwhile)
     page.evaluate("() => document.querySelector('#player audio').pause()")
     time.sleep(1.2)
     saved = stored(srv, row["id"])
@@ -132,11 +151,11 @@ def test_seek_reload_resumes_five_seconds_back_with_the_line(browser, srv):
     ctx.close()
 
 
-def test_finished_clears_and_next_play_starts_at_zero(browser, srv):
+def test_finished_clears_and_next_play_starts_at_zero(new_context, srv):
     row = first_row(srv)
     post(srv, row["id"], 60)
     time.sleep(1.1)
-    ctx = browser.new_context(viewport={"width": 1280, "height": 900})
+    ctx = new_context(viewport={"width": 1280, "height": 900})
     page = ctx.new_page()
     open_history(page, srv)
     play_first(page, srv, row)
@@ -154,7 +173,7 @@ def test_finished_clears_and_next_play_starts_at_zero(browser, srv):
     ctx.close()
 
 
-def test_a_changed_file_drops_the_position(browser, srv):
+def test_a_changed_file_drops_the_position(new_context, srv):
     row = first_row(srv)
     time.sleep(1.1)
     assert post(srv, row["id"], 90)["saved"] is True
@@ -164,7 +183,7 @@ def test_a_changed_file_drops_the_position(browser, srv):
     try:
         path.write_bytes(original + b"\0" * 64)  # the same row now points at a different file
         assert stored(srv, row["id"]) == 0
-        ctx = browser.new_context(viewport={"width": 1280, "height": 900})
+        ctx = new_context(viewport={"width": 1280, "height": 900})
         page = ctx.new_page()
         open_history(page, srv)
         play_first(page, srv, row)
@@ -174,11 +193,11 @@ def test_a_changed_file_drops_the_position(browser, srv):
         path.write_bytes(original)
 
 
-def test_another_page_continues_where_the_first_left(browser, srv):
+def test_another_page_continues_where_the_first_left(new_context, srv):
     row = first_row(srv)
     post(srv, row["id"], 0)
     time.sleep(1.1)
-    a = browser.new_context(viewport={"width": 1280, "height": 900})
+    a = new_context(viewport={"width": 1280, "height": 900})
     pa = a.new_page()
     open_history(pa, srv)
     play_first(pa, srv, row)
@@ -188,7 +207,7 @@ def test_another_page_continues_where_the_first_left(browser, srv):
     time.sleep(1.2)
     saved = stored(srv, row["id"])
     a.close()
-    b = browser.new_context(viewport={"width": 375, "height": 800})  # a fresh browser: nothing local
+    b = new_context(viewport={"width": 375, "height": 800})  # a fresh browser: nothing local
     pb = b.new_page()
     open_history_phone(pb, srv)
     pb.locator(".hcard").first.locator(".hactions button").first.click()
@@ -206,10 +225,10 @@ def open_history_phone(page, srv):
     page.wait_for_selector(".hcard")
 
 
-def test_quit_during_play_keeps_the_last_seconds(browser):
+def test_quit_during_play_keeps_the_last_seconds(new_context):
     with DemoServer(rows=30, env=ENV) as own:  # its own server: Quit really stops it
         row = first_row(own)
-        ctx = browser.new_context(viewport={"width": 1280, "height": 900})
+        ctx = new_context(viewport={"width": 1280, "height": 900})
         page = ctx.new_page()
         open_history(page, own)
         play_first(page, own, row)
@@ -229,3 +248,23 @@ def test_quit_during_play_keeps_the_last_seconds(browser):
         c.close()
         assert at_quit - 1.5 <= kept <= at_quit + 1.5, (at_quit, kept)
         assert kept >= 122  # newer than the last regular save at 120
+
+
+def test_a_seek_right_after_a_save_is_not_lost(new_context, srv):
+    """The server takes one regular save per second per file; the page waits and sends it, never drops it."""
+    row = first_row(srv)
+    post(srv, row["id"], 0)
+    time.sleep(1.1)
+    ctx = new_context(viewport={"width": 1280, "height": 900})
+    page = ctx.new_page()
+    open_history(page, srv)
+    play_first(page, srv, row)
+    page.evaluate(
+        """() => { const a = document.querySelector('#player audio');
+        a.addEventListener('seeked', () => { a.currentTime = 140; }, { once: true });
+        a.currentTime = 30; }"""
+    )
+    start = time.time()
+    v = wait_stored(srv, row["id"], lambda x: 139 <= x <= 143, timeout=4)
+    assert 139 <= v <= 143, v
+    assert time.time() - start < 3.5  # within about a second, not at the next 5 s save

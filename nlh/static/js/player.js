@@ -11,7 +11,8 @@ const IGNORE_UNDER_S = 10; // the server applies the same two rules
 const TAIL_S = 15; // this close to the end counts as finished
 const LINE_MS = 12000; // how long "Continuing from" stays
 const QUIT_WAIT_MS = 1500;
-const state = { id: null, title: "", notebook: "", audio: null, lastSave: 0, lineTimer: 0, applied: true, ownSeek: false };
+const MIN_GAP_MS = 1100; // the server accepts one regular save per second per file: wait, never drop one
+const state = { id: null, title: "", notebook: "", audio: null, lastSave: 0, lineTimer: 0, applied: true, ownSeek: false, deferred: 0 };
 
 const live = new Map(); // positions saved in this page since the rows were loaded
 
@@ -90,6 +91,14 @@ async function send(id, seconds, { final = false, playing = false, keepalive = f
 function save({ final = false, keepalive = false } = {}) {
   const a = state.audio;
   if (!a || state.id === null || !state.applied) return Promise.resolve(false);
+  const since = Date.now() - state.lastSave;
+  if (!final && !keepalive && since < MIN_GAP_MS) {
+    // Too soon after the last save (a seek right after a regular save): send it a moment later.
+    if (!state.deferred) state.deferred = setTimeout(() => { state.deferred = 0; save(); }, MIN_GAP_MS - since);
+    return Promise.resolve(false);
+  }
+  clearTimeout(state.deferred);
+  state.deferred = 0;
   state.lastSave = Date.now();
   const total = Number.isFinite(a.duration) ? a.duration : 0;
   const value = keepable(a.currentTime, total);
@@ -153,7 +162,9 @@ export function play(id, title, notebook) {
   if (!state.audio) build();
   const a = state.audio;
   if (state.id === id) { if (a.paused) a.play(); return; }
-  if (state.id !== null) save();
+  if (state.id !== null) save({ keepalive: true }); // the file being left: now, not deferred
+  clearTimeout(state.deferred);
+  state.deferred = 0;
   hideLine();
   state.id = id;
   state.title = title;
