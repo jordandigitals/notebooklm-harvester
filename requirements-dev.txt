@@ -1,3 +1,4 @@
 -r requirements.txt
 pytest==9.2.0
 ruff==0.17.5
+pillow==13.0.0  # tests: pixel checks in browser tests (same pin as docs/manual)
