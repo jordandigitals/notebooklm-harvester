@@ -19,7 +19,9 @@ WORDINGS = [
 FITS = """() => { const q = document.getElementById('q'); const cs = getComputedStyle(q);
   const c = document.createElement('canvas').getContext('2d');
   c.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
-  const room = q.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const room = q.getBoundingClientRect().width
+    - parseFloat(cs.borderLeftWidth) - parseFloat(cs.borderRightWidth)
+    - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
   return {text: q.placeholder, width: c.measureText(q.placeholder).width, room}; }"""
 
 
@@ -55,6 +57,8 @@ def test_placeholder_fits_and_ends_at_a_word(browser, server, width):
     assert r["text"] == "Search" or r["width"] <= r["room"], r
     if width >= 1440:
         assert r["text"] == WORDINGS[0]  # a wide screen shows the full wording
+    if width == 1280:
+        assert r["text"] != "Search"  # the window's first width has room for words (the old cut was at "fil")
     ctx.close()
 
 

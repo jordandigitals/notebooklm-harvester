@@ -107,9 +107,13 @@ let measureCtx = null;
 /** Pick the placeholder that fits the search box now. */
 export function fitPlaceholder() {
   const q = $("q");
-  if (!q || !q.clientWidth) return;
+  const box = q ? q.getBoundingClientRect().width : 0;
+  if (!box) return;
   const cs = getComputedStyle(q);
-  const room = q.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - 4;
+  // The rendered width, minus borders and padding (an input's clientWidth already leaves the padding out
+  // in Chromium, so it cannot be used here).
+  const room = box - parseFloat(cs.borderLeftWidth) - parseFloat(cs.borderRightWidth)
+    - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - 4;
   measureCtx = measureCtx || document.createElement("canvas").getContext("2d");
   measureCtx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
   q.placeholder = Q_PLACEHOLDERS.find((t) => measureCtx.measureText(t).width <= room) || Q_PLACEHOLDERS[Q_PLACEHOLDERS.length - 1];
