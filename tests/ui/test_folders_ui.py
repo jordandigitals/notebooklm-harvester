@@ -167,7 +167,13 @@ def test_use_and_forget_then_new_account_quick_picks(browser):
         picks.first.wait_for(timeout=10000)
         assert 1 <= picks.count() <= 3
         picks.first.click()
-        page.locator(".toast", has_text="Folder saved").first.wait_for(timeout=10000)
-        new = next(a for a in srv.api("/api/state")["accounts"] if a["email"] == "demo.new@example.com")
+        # Wait for this pick's own save. The "Folder saved" toast from the Use step above can still be on
+        # screen for 7 s, so waiting for a toast could return before this save (flaky on CI, 2026-11-17).
+        new = {}
+        for _ in range(100):
+            new = next(a for a in srv.api("/api/state")["accounts"] if a["email"] == "demo.new@example.com")
+            if new["output_dir"]:
+                break
+            page.wait_for_timeout(100)
         assert new["output_dir"]
         page.context.close()

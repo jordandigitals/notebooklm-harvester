@@ -40,11 +40,17 @@ fi
 "$BUILD_VENV/bin/pip" install -q -r requirements.txt pyinstaller==6.22.3
 
 rm -rf build/pyinstaller "dist/$NAME.app" dist/NotebookLM-Harvester-mac-*
-"$BUILD_VENV/bin/pyinstaller" --noconfirm --clean --windowed \
+# Two steps so the bundle gets its real version (the command line has no option for it): make the spec,
+# write the version into BUNDLE, then build. Everything that goes inside the .app is given to PyInstaller
+# (the notices too), so nothing is added after it signs the bundle: a file copied in later breaks the
+# ad hoc seal, and a downloaded (quarantined) copy can then be called "damaged" by Gatekeeper.
+mkdir -p build/pyinstaller
+"$BUILD_VENV/bin/pyi-makespec" --windowed \
   --name "$NAME" \
   --osx-bundle-identifier com.jordandigitals.notebooklm-harvester \
-  --workpath build/pyinstaller --distpath dist --specpath build/pyinstaller \
+  --specpath build/pyinstaller \
   --add-data "$PWD/nlh/static:nlh/static" \
+  --add-data "$PWD/nlh/static/THIRD-PARTY-NOTICES.txt:." \
   --add-binary "$PWD/$CACHE/ffmpeg:." \
   --add-binary "$PWD/$CACHE/ffprobe:." \
   --collect-all notebooklm \
@@ -52,9 +58,20 @@ rm -rf build/pyinstaller "dist/$NAME.app" dist/NotebookLM-Harvester-mac-*
   --collect-all playwright \
   --hidden-import webview --hidden-import webview.platforms.cocoa \
   --icon "$PWD/packaging/app.icns" \
-  nlh/app_entry.py
+  nlh/app_entry.py >/dev/null
+SPEC="build/pyinstaller/$NAME.spec"
+"$BUILD_VENV/bin/python" - "$SPEC" "$VERSION" <<'PY'
+import sys
+spec, version = sys.argv[1], sys.argv[2]
+text = open(spec).read()
+marker = "app = BUNDLE(\n    coll,\n"
+assert marker in text, "BUNDLE call not found in the generated spec"
+text = text.replace(marker, marker + f"    version={version!r},\n", 1)
+open(spec, "w").write(text)
+PY
+"$BUILD_VENV/bin/pyinstaller" --noconfirm --clean \
+  --workpath build/pyinstaller --distpath dist "$SPEC"
 
-cp nlh/static/THIRD-PARTY-NOTICES.txt "dist/$NAME.app/Contents/Resources/"
 STAGE="dist/NotebookLM-Harvester-mac-$ARCH-$VERSION"
 mkdir -p "$STAGE"
 cp -R "dist/$NAME.app" "$STAGE/"
