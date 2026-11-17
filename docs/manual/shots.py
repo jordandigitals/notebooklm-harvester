@@ -76,6 +76,45 @@ def _boxes(pg, selector):
     return out
 
 
+def partly_played(s) -> None:
+    """Give the first playable saved file a real 20 minute demo tone and a saved place at 12:30, so the
+    History row shows its progress line and the player shows "Continuing from 12:30"."""
+    from nlh import media, procs
+
+    row = next(r for r in s.api("/api/history/page")["rows"] if r["playable"])
+    path = Path(row["path"])
+    tmp = path.with_suffix(".tmp.mp3")
+    procs.run(
+        [
+            media.tool("ffmpeg"),
+            "-nostdin",
+            "-v",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=330:duration=1200",
+            "-ac",
+            "1",
+            "-b:a",
+            "24k",
+            str(tmp),
+        ],
+        check=True,
+    )
+    tmp.replace(path)  # a demo file in the demo home
+    length = media.probe(path).duration
+    con = sqlite3.connect(Path(s.srv.home) / "ledger.db")
+    con.execute(
+        "UPDATE harvests SET size_bytes = ?, duration_s = ? WHERE id = ?",
+        (path.stat().st_size, length, row["id"]),
+    )
+    con.commit()
+    con.close()
+    s.api(f"/api/position/{row['id']}", {"position_s": 750})
+
+
 class Shots:
     """One demo server and browser for the whole run."""
 
@@ -316,6 +355,7 @@ def capture(s: Shots):
     pg.context.close()
 
     # ---------------- history, player, export, drawer, stats
+    partly_played(s)  # resume playback (P2-J): one saved file listened to 12:30 of 20:00
     pg = s.page(query="v=history", ready=".htable")
     s.save(
         pg,
@@ -334,7 +374,11 @@ def capture(s: Shots):
     s.save(
         pg,
         "12-player",
-        marks=[("#player button[aria-label='Back 15 seconds']", 1, "top"), ("#player select", 2, "top")],
+        marks=[
+            ("#player button[aria-label='Back 15 seconds']", 1, "top"),
+            ("#player select", 2, "top"),
+            ("#pl-restart", 3, "right"),
+        ],
         crop=["#player"],
     )
     pg.locator("button", has_text="Export").first.click()

@@ -40,7 +40,7 @@ PHONE = HERE / "real-phone"
 sys.path.insert(0, str(ROOT))
 from nlh import __version__ as APP_VERSION  # noqa: E402
 
-MANUAL_VERSION = "v2"
+MANUAL_VERSION = "v3"
 BUILT = date.today().strftime("%d %b %Y").lstrip("0")
 # Two editions from one source. "public" (the GitHub release) is built from this file alone. "full" is the
 # owner's copy: it also needs a private JSON file kept OUTSIDE this public repo (--private PATH, or the
@@ -321,11 +321,14 @@ def build():
     S += [Spacer(1, 14)]
     S += table(
         [
-            ["App version", APP_VERSION + " (Mac and Windows packages)"],
+            [
+                "App version",
+                APP_VERSION + " when this manual was made (a newer package may be in the folder)",
+            ],
             ["Manual version", f"{MANUAL_VERSION} ({EDITION} edition), made {BUILT} from the app itself"],
             [
                 "Runs on",
-                "Mac (Intel) and Windows 11, as a page in your browser served by the app on your laptop",
+                "Mac (Intel) and Windows 11. The app opens in its own window; it can also open in your browser",
             ],
             ["Built on", "notebooklm-py 0.8.2, an unofficial library (see Limits and risks)"],
         ],
@@ -348,8 +351,8 @@ def build():
     S += steps(
         [
             "<b>Start the app.</b> Mac: open <b>NotebookLM Harvester</b> (the first time, right-click it and choose <b>Open</b>). "
-            "Windows: double-click <b>run-windows.bat</b>. A page opens in your browser.",
-            "<b>Add your Google account.</b> Press <b>Add account</b> and pick the Chrome profile that is signed in to the account with your notebooks (Section 3).",
+            "Windows: open the <b>NotebookLM Harvester</b> folder and double-click <b>NotebookLM Harvester.exe</b>. The app opens in its own window.",
+            "<b>Add your Google account.</b> Press <b>Add account</b>, then <b>Continue with Google</b> and sign in once (Section 3).",
             "<b>Choose where files go.</b> Click the account, press <b>Choose folder</b> and pick or make a folder (Section 3).",
             "<b>Read your notebooks.</b> Press <b>Refresh notebooks</b> (or <b>Refresh all accounts</b>). Each overview shows a status such as New or Saved.",
             "<b>Save the new ones.</b> Press <b>Select new</b>, then the blue <b>Harvest</b> button at the bottom. Press Play on any saved row to listen.",
@@ -362,7 +365,8 @@ def build():
         max_h=4.6,
     )
     S += box(
-        "Press <b>Quit</b> at the top right when you are done. Closing only the browser tab leaves the app running.",
+        "Close the app's window (or press <b>Quit</b> at the top right) when you are done. If a harvest is running, closing asks first and then finishes the current file. "
+        "If you chose to open the app in your browser, press <b>Quit</b>: closing only the browser tab leaves the app running.",
         "Stopping",
     )
     S.append(PageBreak())
@@ -436,7 +440,7 @@ def build():
     S += [P("Mac", h2)]
     S += steps(
         [
-            "Download <b>NotebookLM-Harvester-mac-x86_64-%s.zip</b> and open it." % APP_VERSION,
+            "Download the newest <b>NotebookLM-Harvester-mac-x86_64</b> zip and open it.",
             "Drag <b>NotebookLM Harvester.app</b> into Applications (or anywhere you like).",
             "The first time, right-click the app and choose <b>Open</b>, then <b>Open</b> again. macOS asks because the app is not signed by Apple. If it still refuses: System Settings, Privacy and Security, <b>Open Anyway</b>.",
             "When the app first reads Chrome's sign-in, macOS asks to use <b>Chrome Safe Storage</b> from your keychain. Enter your Mac password and choose <b>Always Allow</b>.",
@@ -446,8 +450,8 @@ def build():
     S += [P("Windows", h2)]
     S += steps(
         [
-            "Download <b>NotebookLM-Harvester-win-x64-%s.zip</b> and unzip it to a folder." % APP_VERSION,
-            "Double-click <b>run-windows.bat</b>.",
+            "Download the newest <b>NotebookLM-Harvester-win-x64</b> zip and unzip it to a folder.",
+            "Open the <b>NotebookLM Harvester</b> folder and double-click <b>NotebookLM Harvester.exe</b>.",
             "If Windows SmartScreen says <b>Windows protected your PC</b>, choose <b>More info</b>, then <b>Run anyway</b>. README-FIRST-win.txt in the zip says the same.",
         ],
         marked=False,
@@ -460,8 +464,10 @@ def build():
     S += [P("Starting and stopping", h2)]
     S += bullets(
         [
-            "Starting opens the page in your browser. Starting it again while it runs just opens the same page.",
-            "Stop it with <b>Quit</b> at the top right. Closing the tab leaves the app running.",
+            "The app opens in its own window. Starting it again while it runs brings that window to the front.",
+            "To use your browser instead: Settings, <b>Open the app in</b>, Browser. If the window cannot open on a computer, the app opens in the browser by itself and says so.",
+            "Stop it by closing the window (Mac: also Command-Q) or with <b>Quit</b> at the top right. If a harvest is running, closing asks first and finishes the current file; Quit waits until the job ends. In the browser, closing the tab leaves the app running, so use Quit.",
+            "Updating: replace the app (Mac) or the folder (Windows) with the new one. No copy of the old version is kept or needed; your saved files, history and settings stay.",
             "Nothing else is needed: Python and ffmpeg are inside the app.",
         ]
     )
@@ -723,10 +729,18 @@ def build():
     )
     S += pic(
         "12-player",
-        "The player stays at the bottom while you browse: (1) back 15 seconds, (2) speed.",
+        "The player stays at the bottom while you browse: (1) back 15 seconds, (2) speed, (3) Start from the beginning.",
         max_h=1.8,
     )
-    S += [P("The player remembers where you stopped in each file. Press <b>p</b> to play or pause.")]
+    S += bullets(
+        [
+            "<b>It continues where you stopped.</b> Press Play on a file you were part way through and it starts a few seconds before that place, with the line <b>Continuing from</b> and the time. Press <b>Start from the beginning</b> to hear it from the start instead.",
+            "The place is kept by the app on your laptop, so the laptop and a paired phone share it. It is saved every few seconds while playing, and when you pause, close the window or quit.",
+            "A file played to the end starts from the beginning next time. A thin line under a row in History and Library shows how far you got; the file's details say <b>Listened to</b> and the time.",
+            "If a file is replaced (downloaded again), its place is forgotten, so it never jumps into the middle of a different file.",
+            "Press <b>p</b> to play or pause.",
+        ]
+    )
     S += side_by_side(
         (
             "13-export",
@@ -755,7 +769,8 @@ def build():
         [
             "<b>Appearance</b>: match system, light or dark.",
             "<b>Defaults</b>: a suggested folder for new accounts and the view to open with.",
-            "<b>Studio</b>, <b>Phone</b>, <b>Notifications</b> (a browser message when a long harvest ends), <b>Diagnostics</b> (facts to include when asking for help; no account names, emails or sign-in data) and the trash for failed sign-ins.",
+            "<b>Open the app in</b>: App window (the default) or Browser.",
+            "<b>Studio</b>, <b>Phone</b>, <b>Notifications</b> (a browser message when a long harvest ends; when the app opens in your browser. Native messages for the app window come with watch mode), <b>Diagnostics</b> (facts to include when asking for help; no account names, emails or sign-in data) and the trash for failed sign-ins.",
         ]
     )
     S += pic(
@@ -981,7 +996,7 @@ def build():
         [
             "Off by default. Unticking, quitting or removing a phone cuts access at once, even mid-song.",
             "It listens only on your private home network address, never a VPN, and stops by itself if the laptop changes network.",
-            "The phone can browse and play only. The laptop refuses everything else, and phone replies carry no emails or folder paths.",
+            "The phone can browse, play and save where you stopped listening, nothing else. The laptop refuses everything else, and phone replies carry no emails or folder paths.",
         ]
     )
     S.append(PageBreak())
@@ -1040,6 +1055,11 @@ def build():
                 own("studio-state", "Done, checked live"),
             ],
             ["Phone listening and home-screen shortcut", "Done, checked live on an Android phone"],
+            [
+                "App window (Mac and Windows)",
+                "Done; your own sign-in with the window open is part of your check",
+            ],
+            ["Continue where you stopped", "Done on the laptop; on the phone, part of your check"],
             ["Shared with me", "Done, view-only share checked live"],
         ],
         [3.5, 3.0],
