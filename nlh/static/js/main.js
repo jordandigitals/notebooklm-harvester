@@ -106,9 +106,10 @@ const Q_PLACEHOLDERS = ["Search titles, notebooks, accounts, files", "Search tit
 let measureCtx = null;
 // WebKit (Safari, the Mac app window) keeps room inside a search box for its clear button even while the box
 // is empty, so a wording that fits the padded box was still cut ("account" + half an "s" at 1280 in the Mac
-// window, D-035 Mac). Chromium (Chrome, Edge, WebView2) does not, so it keeps the full room.
+// window, D-035 Mac). Chromium (Chrome, Edge, WebView2) does the same with a smaller button: at 320 px
+// "Search titles, notebooks" lost its "s" with 4 px to spare.
 const IS_WEBKIT = /AppleWebKit/.test(navigator.userAgent) && !/(Chrome|Chromium|Edg)\//.test(navigator.userAgent);
-const SEARCH_CLEAR_ROOM = IS_WEBKIT ? 28 : 0;
+const SEARCH_CLEAR_ROOM = IS_WEBKIT ? 28 : 20;
 
 /** Pick the placeholder that fits the search box now. */
 export function fitPlaceholder() {

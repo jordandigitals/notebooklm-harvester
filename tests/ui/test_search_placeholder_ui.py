@@ -1,6 +1,7 @@
 """The search box placeholder is never cut mid word: the page picks the longest wording that fits the box
-(it read "...accounts, fil" at the app window's first width). Checked at the window's minimum, a tablet, the
-window's first width and a wide screen."""
+(it read "...accounts, fil" at the app window's first width, and "...notebook" at 320 px because Chromium
+keeps room for its clear button). Checked at the smallest phone, the window's minimum, a tablet, the window's
+first width and a wide screen."""
 
 import os
 
@@ -21,7 +22,8 @@ FITS = """() => { const q = document.getElementById('q'); const cs = getComputed
   c.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
   const room = q.getBoundingClientRect().width
     - parseFloat(cs.borderLeftWidth) - parseFloat(cs.borderRightWidth)
-    - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
+    - 16;  // Chromium's clear button keeps about this much room even while the box is empty
   return {text: q.placeholder, width: c.measureText(q.placeholder).width, room}; }"""
 
 
@@ -45,7 +47,7 @@ def browser():
         b.close()
 
 
-@pytest.mark.parametrize("width", [380, 768, 1280, 1440])
+@pytest.mark.parametrize("width", [320, 380, 768, 1280, 1440])
 def test_placeholder_fits_and_ends_at_a_word(browser, server, width):
     ctx = browser.new_context(viewport={"width": width, "height": 800}, bypass_csp=True)
     page = ctx.new_page()
