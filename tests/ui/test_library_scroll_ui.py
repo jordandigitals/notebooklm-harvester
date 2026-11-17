@@ -101,10 +101,18 @@ def pinned_bottom(page):
     )
 
 
-def start_harvest(page, n_min=12):
-    """Select new rows on the page and start a harvest (confirms the big-harvest dialog)."""
+def start_harvest(page, rows=None):
+    """Start a harvest: `rows` ticked rows (a small, quick job), or every New row in view when the test
+    needs a long job to press Stop on (confirms the big-harvest dialog)."""
     scroll_to(page, 0)
-    page.click("#sel-new")
+    if rows:
+        page.click("[data-scope=all]")  # earlier tests may have harvested this account's New rows
+        page.wait_for_timeout(300)
+        boxes = page.locator("#vlist input[type=checkbox]")
+        for i in range(rows):
+            boxes.nth(i).click()
+    else:
+        page.click("#sel-new")
     page.click("#sel-harvest")
     if page.locator("dialog[open]").count():
         page.locator("dialog[open] .btn-primary").click()
@@ -184,8 +192,8 @@ def test_running_harvest_line_is_pinned_compact_and_has_stop(browser, server):
 
 def test_details_opens_the_items_and_is_remembered(browser, server):
     page = open_lib(browser, server)
-    start_harvest(page)
-    page.locator("#job-box button:has-text('Clear finished')").wait_for(timeout=180000)
+    start_harvest(page, rows=3)  # a small job: every New row took over 180 s on a slower Mac
+    page.locator("#job-box button:has-text('Clear finished')").wait_for(timeout=60000)
     toggle = page.locator("#job-box .job-toggle")
     details = page.locator("#job-details")
     was = toggle.get_attribute("aria-expanded") == "true"
