@@ -104,6 +104,11 @@ async function loadState() {
 // ("...accounts, fil" at the app window's first width). The label and description keep the full text.
 const Q_PLACEHOLDERS = ["Search titles, notebooks, accounts, files", "Search titles, notebooks, accounts", "Search titles, notebooks", "Search"];
 let measureCtx = null;
+// WebKit (Safari, the Mac app window) keeps room inside a search box for its clear button even while the box
+// is empty, so a wording that fits the padded box was still cut ("account" + half an "s" at 1280 in the Mac
+// window, D-035 Mac). Chromium (Chrome, Edge, WebView2) does not, so it keeps the full room.
+const IS_WEBKIT = /AppleWebKit/.test(navigator.userAgent) && !/(Chrome|Chromium|Edg)\//.test(navigator.userAgent);
+const SEARCH_CLEAR_ROOM = IS_WEBKIT ? 28 : 0;
 
 /** Pick the placeholder that fits the search box now. */
 export function fitPlaceholder() {
@@ -114,7 +119,7 @@ export function fitPlaceholder() {
   // The rendered width, minus borders and padding (an input's clientWidth already leaves the padding out
   // in Chromium, so it cannot be used here).
   const room = box - parseFloat(cs.borderLeftWidth) - parseFloat(cs.borderRightWidth)
-    - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - 4;
+    - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - 4 - SEARCH_CLEAR_ROOM;
   measureCtx = measureCtx || document.createElement("canvas").getContext("2d");
   measureCtx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
   q.placeholder = Q_PLACEHOLDERS.find((t) => measureCtx.measureText(t).width <= room) || Q_PLACEHOLDERS[Q_PLACEHOLDERS.length - 1];
