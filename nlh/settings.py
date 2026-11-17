@@ -76,7 +76,7 @@ DEFAULTS = {
     "views": None,  # None means "use DEFAULT_VIEWS"
     # Studio (D-025)
     "studio_daily_cap": 4,  # generated overviews per account per local day
-    "studio_pause_s": 45,  # pause between generation requests
+    "studio_pause_s": 45,  # pause between generation requests, whole seconds (shown in s, min or h)
     "studio_shared_accounts": [],  # account ids marked "used by other automated tools"
     "studio_ask_warned": False,  # the one-time warning about chat messages was shown
     "studio_language": "en",
@@ -93,7 +93,7 @@ DEFAULTS = {
 SERVER_ONLY = frozenset({"phone_enabled", "phone_port", "phone_address", "recent_folders", "window_bounds"})
 RECENT_MAX = 10
 STUDIO_CAP_RANGE = (1, 20)
-STUDIO_PAUSE_RANGE = (30, 300)
+STUDIO_PAUSE_RANGE = (30, 86400)  # 30 seconds to 24 hours (Chat ruling 2026-11-17)
 
 _lock = threading.Lock()
 
@@ -207,7 +207,7 @@ def validate(update: dict) -> dict:
         elif key == "studio_pause_s":
             lo, hi = STUDIO_PAUSE_RANGE
             if not isinstance(value, int) or isinstance(value, bool) or not lo <= value <= hi:
-                raise SettingsError(f"The pause between requests must be {lo} to {hi} seconds.")
+                raise SettingsError("The pause between requests must be from 30 seconds to 24 hours.")
         elif key == "studio_shared_accounts":
             if (
                 not isinstance(value, list)

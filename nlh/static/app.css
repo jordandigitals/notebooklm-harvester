@@ -485,6 +485,11 @@ body.has-player .actionbar { bottom: 132px; }
 #view-studio { overflow-y: auto; }
 .studio-card textarea.input { padding: var(--s2) var(--s3); }
 .set-card .num { width: 7rem; }
+.set-card .pause-unit { width: auto; min-width: 8rem; }
+/* one column that never grows past the card (Studio card was 8 px too wide at 375) */
+.set-card { grid-template-columns: minmax(0, 1fr); }
+.set-card .check .lbl { white-space: normal; }
+.pause-field .error:empty { display: none; }
 .make-panel { display: grid; gap: var(--s3); padding: var(--s3); border-top: 1px solid var(--line); margin-top: var(--s2); }
 .make-rows { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--s3); }
 .make-row { display: grid; gap: var(--s2); padding: var(--s3); border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface-2); min-width: 0; }

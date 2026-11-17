@@ -472,6 +472,7 @@ const QSTATE = {
 
 function mmss(s) {
   const t = Math.max(0, Math.round(s));
+  if (t >= 3600) return `${Math.floor(t / 3600)} h ${String(Math.floor((t % 3600) / 60)).padStart(2, "0")} min`;
   return t >= 60 ? `${Math.floor(t / 60)} min ${String(t % 60).padStart(2, "0")} s` : `${t} s`;
 }
 

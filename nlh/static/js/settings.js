@@ -3,6 +3,7 @@
 import { api } from "./api.js";
 import { $, el, button, size, plural } from "./dom.js";
 import { toast, confirmDialog } from "./ui.js";
+import { UNITS, toDisplay, checkPause, describe } from "./duration.js";
 import { openFolderPicker, acctState } from "./accounts.js";
 
 export const prefs = { settings: null, views: [], onTheme: () => {}, appWindow: false, windows: false };
@@ -167,9 +168,49 @@ export async function renderSettings() {
     lab.append(row);
     return lab;
   };
+  /** "Pause between requests": a whole number plus seconds, minutes or hours; saved as seconds. */
+  const pauseField = (min, max) => {
+    const key = "studio_pause_s";
+    const wrap = el("div", "field pause-field");
+    const lbl = el("span", "", "Pause between requests");
+    lbl.id = "pause-label";
+    const row = el("div", "row");
+    const inp = el("input", "input num");
+    inp.id = "pause-value";
+    inp.type = "number";
+    inp.min = "1";
+    inp.step = "1";
+    inp.inputMode = "numeric";
+    inp.setAttribute("aria-labelledby", "pause-label");
+    const unit = el("select", "select pause-unit");
+    unit.id = "pause-unit";
+    unit.setAttribute("aria-label", "Unit for the pause between requests");
+    for (const u of UNITS.slice().reverse()) { const o = el("option", "", u.label); o.value = u.key; unit.append(o); }
+    const msg = el("p", "error pause-msg");
+    msg.id = "pause-msg";
+    msg.setAttribute("aria-live", "polite");
+    const hint = el("p", "hint", `From ${describe(min)} to ${describe(max)}.`);
+    hint.id = "pause-hint";
+    inp.setAttribute("aria-describedby", "pause-hint pause-msg");
+    const show = (seconds) => { const d = toDisplay(seconds); inp.value = String(d.value); unit.value = d.unit; };
+    show(st[key]);
+    const commit = async () => {
+      const r = checkPause(inp.value, unit.value, min, max);
+      if (r.error) { msg.textContent = r.error; inp.setAttribute("aria-invalid", "true"); return; }
+      msg.textContent = "";
+      inp.removeAttribute("aria-invalid");
+      if (r.seconds === prefs.settings[key]) return;
+      if (await save({ [key]: r.seconds }, `Pause between requests saved: ${describe(r.seconds)}.`)) show(r.seconds);
+    };
+    inp.addEventListener("change", commit);
+    unit.addEventListener("change", commit);
+    row.append(inp, unit);
+    wrap.append(lbl, row, hint, msg);
+    return wrap;
+  };
   studioCard.append(
     numField("Overviews per account per day", "studio_daily_cap", 1, 20, "counted when a request is sent"),
-    numField("Pause between requests", "studio_pause_s", 30, 300, "seconds"),
+    pauseField(30, 86400),
   );
   const langLab = el("label", "field", "Language for new overviews");
   const lang = el("input", "input num");

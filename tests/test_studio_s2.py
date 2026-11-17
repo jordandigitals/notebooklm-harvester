@@ -152,6 +152,25 @@ def test_plan_to_mp3_full_path_then_nothing_new(ledger, setup, g):
     assert len(g.sent) == sent and len(ledger.harvests()) == 2
 
 
+@needs_ffmpeg
+def test_queue_waits_the_saved_pause_in_seconds(ledger, setup, g, home):
+    """Two hours chosen in Settings is stored as 7200 and the queue waits 7200 s (fake clock)."""
+    a, _b, _out = setup
+    app_settings.save({"studio_pause_s": 7200})
+    queue(ledger, a, ["One", "Two"])
+    clock = Clock()
+    waits = []
+
+    def sleep(s):
+        waits.append(s)
+        clock.t += s
+
+    r = StudioRunner(ledger, clock=clock, sleep=sleep, today=lambda: "2026-11-14", poll_s=1)
+    run(r)
+    assert states(ledger) == ["done", "done"]
+    assert 7200 in waits and waits.count(7200) == 1  # one pause, between the two requests
+
+
 # ---------------------------------------------------------------- cap
 
 

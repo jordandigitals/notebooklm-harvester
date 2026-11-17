@@ -116,12 +116,37 @@ def test_studio_settings_defaults_and_limits(home):
         {"studio_daily_cap": 21},
         {"studio_daily_cap": True},
         {"studio_pause_s": 10},
+        {"studio_pause_s": 29},
+        {"studio_pause_s": 86401},
+        {"studio_pause_s": "60"},
+        {"studio_pause_s": 60.5},
+        {"studio_pause_s": None},
+        {"studio_pause_s": True},
         {"studio_shared_accounts": ["1"]},
         {"studio_language": "english please"},
         {"studio_ask_warned": "yes"},
     ):
         with pytest.raises(app_settings.SettingsError):
             app_settings.save(bad)
+
+
+def test_studio_pause_bounds_and_old_value(home):
+    """Pause is whole seconds, 30 s to 24 h; an old saved 45 still loads; settings.json holds seconds."""
+    import json
+
+    from nlh import paths
+
+    assert app_settings.STUDIO_PAUSE_RANGE == (30, 86400)
+    f = paths.app_home() / "settings.json"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps({"studio_pause_s": 45}), encoding="utf-8")  # saved by 0.4.x
+    assert app_settings.load()["studio_pause_s"] == 45
+    for ok in (30, 120, 3600, 86400):
+        app_settings.save({"studio_pause_s": ok})
+        assert json.loads(f.read_text(encoding="utf-8"))["studio_pause_s"] == ok
+    with pytest.raises(app_settings.SettingsError, match="30 seconds to 24 hours"):
+        app_settings.save({"studio_pause_s": 86401})
+    assert json.loads(f.read_text(encoding="utf-8"))["studio_pause_s"] == 86400  # refused, not clamped
 
 
 # ---------------------------------------------------------------- schema v4

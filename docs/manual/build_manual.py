@@ -760,7 +760,7 @@ def build():
     )
     S += pic(
         "17-settings-studio",
-        "Settings, Studio: daily limit per account (default 4, 1 to 20), pause between requests (default 45 s), language, and accounts used by other tools.",
+        "Settings, Studio: daily limit per account (default 4, 1 to 20), pause between requests (default 45 seconds; set it in seconds, minutes or hours, from 30 seconds to 24 hours), language, and accounts used by other tools.",
         max_h=4.0,
     )
     S += box(
