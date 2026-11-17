@@ -6,7 +6,7 @@ import { toast, confirmDialog } from "./ui.js";
 import { UNITS, toDisplay, checkPause, describe } from "./duration.js";
 import { openFolderPicker, acctState } from "./accounts.js";
 
-export const prefs = { settings: null, views: [], onTheme: () => {}, appWindow: false, windows: false };
+export const prefs = { settings: null, views: [], onTheme: () => {}, appWindow: false, windows: false, windowCapable: false };
 
 /** Apply a theme now: auto follows the system. */
 export function applyTheme(theme) {
@@ -134,9 +134,9 @@ export async function renderSettings() {
     notes.append(el("p", "hint notify-window-note", "Notifications work when the app is open in your browser."));
   }
 
-  // where the app opens (D-035, Windows)
+  // where the app opens (D-035, Windows and Mac)
   let wcard = null;
-  if (prefs.windows) {
+  if (prefs.windowCapable) {
     wcard = section("App window", "The app opens in its own window. Choose the browser instead if the window does not suit this computer.");
     const wlab = el("label", "field", "Open the app in");
     const wsel = el("select", "select");

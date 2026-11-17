@@ -1,10 +1,12 @@
 """Native app window (D-035): the app's own local page in the system web view, with a browser fallback.
 
-A thin shell. The app stays the same local web page served by Flask; on Windows a pywebview window shows
-it through Microsoft's WebView2 runtime instead of a browser tab. Rules:
+A thin shell. The app stays the same local web page served by Flask; a pywebview window shows it through
+the system web view instead of a browser tab: Microsoft's WebView2 on Windows, WKWebView on the Mac (the
+Cocoa-specific parts are in nlh.window_mac). Rules:
 - The window shows only http://127.0.0.1:<port>. Any other address opens in the default browser and never
   inside the window. Google sign-in stays in its own Chrome or Edge window (D-029).
-- If WebView2 is missing, the library does not load, or the window fails to open, the app opens in the
+- If the web view is missing (no WebView2, macOS before 11.3), the library or a guard does not load, or
+  the window fails to open, the app opens in the
   default browser exactly as before, and the page says so in one plain line. NLH_BROWSER=1, --browser, or
   the Settings choice "Open the app in: Browser" force the browser.
 - Closing the window quits the app. A running harvest asks first; Yes stops it after the current safe step
@@ -35,6 +37,7 @@ FALLBACK_NOTE = "The app window could not open on this computer, so the app open
 CLOSING_NOTE = "Finishing the current file, then closing."
 QUIT_QUESTION = "A harvest is running. Quit anyway?"
 NOTIFY_NOTE = "Notifications work when the app is open in your browser."
+SAVED_NOTE = "Saved to Downloads as {name}"  # Mac only: WKWebView shows no download bar (D-035 Mac ruling 4)
 MIN_SIZE = (380, 560)
 DEFAULT_SIZE = (1280, 820)
 LOAD_TIMEOUT_S = 25
@@ -71,18 +74,30 @@ def forced_browser(argv: list[str], env: dict, open_in: str) -> bool:
     return "--browser" in argv or env.get("NLH_BROWSER") == "1" or open_in == "browser"
 
 
-def decide(*, platform: str, forced: bool, webview2: str | None, importable: bool) -> str | None:
-    """None to open the window, else why not: forced, not_windows, no_webview2 or no_library.
+def runtime_version() -> str | None:
+    """The system web view this computer can use: the WebView2 version on Windows, the macOS version on
+    a Mac new enough for the window (11.3 or later); None otherwise."""
+    if sys.platform == "win32":
+        return webview2_version()
+    if sys.platform == "darwin":
+        from nlh import window_mac
 
-    Only no_webview2 and no_library (and a window that fails at run time) are fallbacks that the page
-    reports; forced and not_windows are today's browser behaviour on purpose.
+        return window_mac.macos_version()
+    return None
+
+
+def decide(*, platform: str, forced: bool, runtime: str | None, importable: bool) -> str | None:
+    """None to open the window, else why not: forced, other_system, no_webview2, old_macos or no_library.
+
+    runtime is runtime_version(). Only no_webview2, old_macos and no_library (and a window that fails at
+    run time) are fallbacks that the page reports; forced and other_system are the browser on purpose.
     """
     if forced:
         return "forced"
-    if platform != "win32":
-        return "not_windows"
-    if not webview2:
-        return "no_webview2"
+    if platform not in ("win32", "darwin"):
+        return "other_system"
+    if not runtime:
+        return "no_webview2" if platform == "win32" else "old_macos"
     if not importable:
         return "no_library"
     return None
@@ -90,14 +105,19 @@ def decide(*, platform: str, forced: bool, webview2: str | None, importable: boo
 
 def is_fallback(reason: str | None) -> bool:
     """Whether the page should say that the window could not open."""
-    return reason in ("no_webview2", "no_library", "failed")
+    return reason in ("no_webview2", "old_macos", "no_library", "failed")
+
+
+def backend_module() -> str:
+    """pywebview's backend for this system."""
+    return "webview.platforms.cocoa" if sys.platform == "darwin" else "webview.platforms.edgechromium"
 
 
 def load_webview():
-    """The pywebview module with its WebView2 backend loaded, or None if that fails (logged by class)."""
+    """The pywebview module with this system's backend loaded, or None if that fails (logged by class)."""
     try:
         webview = importlib.import_module("webview")
-        importlib.import_module("webview.platforms.edgechromium")  # loads .NET and the WebView2 interop
+        importlib.import_module(backend_module())  # Windows: .NET and WebView2 interop; Mac: pyobjc
         return webview
     except Exception as exc:  # any import or .NET load problem means: use the browser
         log.info("app window library not available: %s", type(exc).__name__)
@@ -174,8 +194,12 @@ def first_size(work: list[tuple[int, int, int, int]]) -> tuple[int, int, int, in
 
 
 def screens() -> list[tuple[int, int, int, int]]:
-    """Work areas of the attached screens (Windows), as (x, y, width, height) in logical pixels, the same
-    units pywebview uses (the primary screen first)."""
+    """Work areas of the attached screens, as (x, y, width, height) in logical pixels (points on the Mac),
+    the same units pywebview uses (the primary screen first)."""
+    if sys.platform == "darwin":
+        from nlh import window_mac
+
+        return window_mac.screens()
     if sys.platform != "win32":
         return []
     from ctypes import wintypes
@@ -217,10 +241,19 @@ def allow_focus_from_other_process() -> None:
             ctypes.windll.user32.AllowSetForegroundWindow(-1)  # ASFW_ANY
         except Exception:
             pass
+    elif sys.platform == "darwin":
+        from nlh import window_mac
+
+        window_mac.yield_activation(window_mac.bundle_id())
 
 
 def message_box(text: str) -> None:
-    """A plain Windows message (used when a second start can neither focus nor open the app)."""
+    """A plain message (used when a second start can neither focus nor open the app)."""
+    if sys.platform == "darwin":
+        from nlh import window_mac
+
+        if window_mac.message_box(text, APP_NAME):
+            return
     if sys.platform == "win32":
         try:
             ctypes.windll.user32.MessageBoxW(None, text, APP_NAME, 0x40 | 0x40000)  # info icon, topmost
@@ -348,6 +381,10 @@ class NativeWindow:
 
     def _ask_quit(self) -> bool:
         """Yes/No question owned by the window (runs on the window's thread)."""
+        if sys.platform == "darwin":
+            from nlh import window_mac
+
+            return window_mac.ask_quit(QUIT_QUESTION, TITLE)  # "Quit" / "Cancel" (D-035 Mac ruling 3)
         hwnd = 0
         try:
             hwnd = int(self.window.native.Handle.ToInt64())
@@ -375,10 +412,7 @@ class NativeWindow:
 
     def _finish_then_close(self):
         """Show the closing note, wait for the worker's safe step (never a force-kill), then close."""
-        try:
-            self.window.evaluate_js("window.__nlhClosing && window.__nlhClosing()")
-        except Exception:
-            pass
+        self._js("window.__nlhClosing && window.__nlhClosing()")
         while self.harvest_running():
             time.sleep(0.3)
         self.may_close = True
@@ -407,6 +441,8 @@ class NativeWindow:
         """
         if not self.window or self.failed:
             return False
+        if sys.platform == "darwin":
+            return self._focus_mac()
         hwnd = own_window_handle()
         if not hwnd:
             return False
@@ -417,10 +453,56 @@ class NativeWindow:
             log.info("app window: focus failed: %s", type(exc).__name__)
             return False
 
+    def _js(self, script: str) -> None:
+        """Run a line of script in the page (fire and forget)."""
+        try:
+            if sys.platform == "darwin" and hasattr(self.window, "uid"):  # the real Cocoa window
+                from nlh import window_mac
+
+                window_mac.run_js(self.window, script)
+            else:
+                self.window.evaluate_js(script)
+        except Exception:
+            pass
+
+    def _focus_mac(self) -> bool:
+        from nlh import window_mac
+
+        try:
+            import webview.platforms.cocoa as cocoa
+
+            nswindow = cocoa.BrowserView.instances[self.window.uid].window
+            return window_mac.raise_window(nswindow)
+        except Exception as exc:
+            log.info("app window: focus failed: %s", type(exc).__name__)
+            return False
+
+    def _saved(self, name: str) -> None:
+        """Mac: tell the page where a download went (WKWebView shows no download bar)."""
+        from nlh import window_mac
+
+        self._js(window_mac.saved_script(SAVED_NOTE.format(name=name)))
+
+    def _install_guards(self) -> None:
+        """This system's guards; raises if they cannot be installed (then no window opens)."""
+        if sys.platform == "darwin":
+            from nlh import window_mac
+
+            window_mac.install_guards(
+                importlib.import_module("webview.platforms.cocoa"),
+                self.port,
+                lambda url: allowed_url(url, self.port),
+                self._saved,
+                downloads_folder,
+            )
+            self.webview.settings["ALLOW_DOWNLOADS"] = True  # downloads go through our delegate
+        else:
+            install_guards(importlib.import_module("webview.platforms.edgechromium"), self.port)
+
     def run(self) -> bool:
         """Open the window and block until it closes. False if it could not open (use the browser)."""
         try:
-            install_guards(importlib.import_module("webview.platforms.edgechromium"), self.port)
+            self._install_guards()
             x, y, w, h = first_size(screens())
             kw = {"x": x, "y": y, "width": w, "height": h}
             if self.bounds:
@@ -436,10 +518,24 @@ class NativeWindow:
             self.window.events.moved += self._remember
             self.window.events.resized += self._remember
             threading.Thread(target=self._watchdog, name="nlh-window-watchdog", daemon=True).start()
-            self.webview.start(gui="edgechromium", private_mode=True)
+            gui = "cocoa" if sys.platform == "darwin" else "edgechromium"
+            working = None
+            if sys.platform == "darwin":
+                from nlh import window_mac
+
+                working = window_mac.keep_working("Harvesting NotebookLM overviews")
+            try:
+                self.webview.start(gui=gui, private_mode=True)  # private: web data wiped at start
+            finally:
+                if working is not None:
+                    window_mac.end_working(working)
         except Exception as exc:
             log.info("app window could not open: %s", type(exc).__name__)
             self.failed = True
+        if sys.platform == "darwin" and self.window is not None:
+            from nlh import window_mac
+
+            window_mac.wipe_website_data()  # and again at close, so the page key is not left on disk
         if self.bounds and not self.failed:
             try:
                 self.save_bounds(list(self.bounds))

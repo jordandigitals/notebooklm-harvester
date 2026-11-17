@@ -23,6 +23,12 @@ Windows package: the app window (D-035)
   pycparser (BSD-3-Clause); bottle (MIT); proxy_tools (MIT). The WebView2 runtime itself is part of
   Windows and is not included.
 
+Mac package: the app window (D-035)
+  pywebview 6.2.1 (BSD-3-Clause), https://github.com/r0x0r/pywebview; PyObjC 13.0 (MIT): pyobjc-core and
+  the Cocoa, Quartz, Security, UniformTypeIdentifiers and WebKit framework wrappers,
+  https://github.com/ronaldoussoren/pyobjc; bottle (MIT); proxy_tools (MIT). The web view (WKWebView) is
+  part of macOS and is not included.
+
 Python runtime and libraries bundled by PyInstaller, each under its own licence, including:
   Python (PSF License), Flask and Werkzeug (BSD-3-Clause), notebooklm-py (MIT),
   rookie-cookies, httpx, rich and their dependencies (see each project's licence).

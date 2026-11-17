@@ -1,6 +1,8 @@
 #!/bin/bash
 # Build the self-contained Mac app (R11, D-018): bundles Python and a static ffmpeg.
 # Run from the repo root on a Mac: packaging/build_mac.sh
+# The app window (D-035): pywebview is imported by name at run time, so PyInstaller is told about it;
+# packaging/app.icns is made from nlh/static/icons/icon-512.png (sips + iconutil).
 # Output: dist/NotebookLM-Harvester-mac-<arch>-<version>.zip
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -48,6 +50,8 @@ rm -rf build/pyinstaller "dist/$NAME.app" dist/NotebookLM-Harvester-mac-*
   --collect-all notebooklm \
   --collect-all rookie_cookies \
   --collect-all playwright \
+  --hidden-import webview --hidden-import webview.platforms.cocoa \
+  --icon "$PWD/packaging/app.icns" \
   nlh/app_entry.py
 
 cp nlh/static/THIRD-PARTY-NOTICES.txt "dist/$NAME.app/Contents/Resources/"

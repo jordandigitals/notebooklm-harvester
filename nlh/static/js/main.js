@@ -83,6 +83,7 @@ async function loadState() {
   banners.querySelector(".window-banner")?.remove();
   prefs.appWindow = !!st.app_window;
   prefs.windows = !!st.windows;
+  prefs.windowCapable = !!st.window_capable;
   // D-035: the app window could not open, so the page is in the browser. One plain line, dismissable.
   if (st.window_note && !role.phone && !sessionStorageGet("nlh-window-note-seen")) {
     const n = noticeBanner("info window-banner", st.window_note);
@@ -130,6 +131,9 @@ window.__nlhClosing = () => {
   banners.append(noticeBanner("warn closing-banner", "Finishing the current file, then closing."));
   toast("Finishing the current file, then closing.", "warn", 600000);
 };
+
+/** Called by the Mac app window when a download (History export) was saved: WKWebView shows no bar. */
+window.__nlhSaved = (text) => { toast(String(text), "ok", 7000); };
 
 function noticeBanner(kind, text) {
   const n = el("div", `notice notice-${kind}`);

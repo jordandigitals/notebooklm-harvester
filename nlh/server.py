@@ -451,6 +451,7 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
             demo=demo.enabled(),
             interactive=adapter.interactive_available(),
             windows=paths.is_windows(),
+            window_capable=sys.platform in ("win32", "darwin"),  # D-035: the app window exists here
             portable=portable,
             portable_ack=(paths.app_home() / ".portable-ack").exists(),
             app_name=APP_NAME,
@@ -1616,8 +1617,8 @@ def _show(app: Flask, cfg: dict, url: str, port: int) -> None:
     from nlh import window
 
     forced = window.forced_browser(sys.argv[1:], dict(os.environ), cfg.get("open_in", "window"))
-    webview2 = None if forced else window.webview2_version()
-    reason = window.decide(platform=sys.platform, forced=forced, webview2=webview2, importable=True)
+    runtime = None if forced else window.runtime_version()
+    reason = window.decide(platform=sys.platform, forced=forced, runtime=runtime, importable=True)
     webview = None
     if reason is None:
         webview = window.load_webview()

@@ -40,11 +40,16 @@ def test_forced_browser(argv, env, open_in, forced):
 @pytest.mark.parametrize(
     ("kw", "reason"),
     [
-        ({"platform": "win32", "forced": False, "webview2": "157.0", "importable": True}, None),
-        ({"platform": "win32", "forced": True, "webview2": "157.0", "importable": True}, "forced"),
-        ({"platform": "darwin", "forced": False, "webview2": None, "importable": True}, "not_windows"),
-        ({"platform": "win32", "forced": False, "webview2": None, "importable": True}, "no_webview2"),
-        ({"platform": "win32", "forced": False, "webview2": "157.0", "importable": False}, "no_library"),
+        ({"platform": "win32", "forced": False, "runtime": "157.0", "importable": True}, None),
+        ({"platform": "win32", "forced": True, "runtime": "157.0", "importable": True}, "forced"),
+        ({"platform": "linux", "forced": False, "runtime": None, "importable": True}, "other_system"),
+        ({"platform": "win32", "forced": False, "runtime": None, "importable": True}, "no_webview2"),
+        ({"platform": "win32", "forced": False, "runtime": "157.0", "importable": False}, "no_library"),
+        # the Mac (D-035 Mac): runtime is the macOS version when it is 11.3 or later
+        ({"platform": "darwin", "forced": False, "runtime": "15.3.2", "importable": True}, None),
+        ({"platform": "darwin", "forced": True, "runtime": "15.3.2", "importable": True}, "forced"),
+        ({"platform": "darwin", "forced": False, "runtime": None, "importable": True}, "old_macos"),
+        ({"platform": "darwin", "forced": False, "runtime": "15.3.2", "importable": False}, "no_library"),
     ],
 )
 def test_decide(kw, reason):
@@ -52,9 +57,9 @@ def test_decide(kw, reason):
 
 
 def test_only_real_failures_are_reported_to_the_person():
-    for reason in ("no_webview2", "no_library", "failed"):
+    for reason in ("no_webview2", "old_macos", "no_library", "failed"):
         assert window.is_fallback(reason)
-    for reason in ("forced", "not_windows", None):
+    for reason in ("forced", "other_system", None):
         assert not window.is_fallback(reason)
     assert "browser" in window.FALLBACK_NOTE and "\u2014" not in window.FALLBACK_NOTE
 
@@ -255,6 +260,7 @@ def test_close_during_a_harvest_yes_finishes_the_file_then_closes():
 def test_focus_restores_and_raises_the_window(monkeypatch):
     """By the window's own handle, so a minimized window whose page has not loaded still comes back."""
     raised = []
+    monkeypatch.setattr(window.sys, "platform", "win32")  # the Windows path (the Mac's is in test_window_mac)
     monkeypatch.setattr(window, "own_window_handle", lambda: 4242)
     monkeypatch.setattr(window, "raise_window", raised.append)
     nw = _nw(_Worker())
