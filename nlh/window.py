@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import ctypes
 import importlib
+import os
 import sys
 import threading
 import time
@@ -232,6 +233,43 @@ def message_box(text: str) -> None:
 # ---------------------------------------------------------------- the window
 
 
+def own_window_handle() -> int | None:
+    """Handle of this process's app window (by process and title), or None."""
+    if sys.platform != "win32":
+        return None
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    pid = os.getpid()
+    found = []
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def cb(hwnd, _):
+        owner = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+        if owner.value == pid:
+            n = user32.GetWindowTextLengthW(hwnd)
+            buf = ctypes.create_unicode_buffer(n + 1)
+            user32.GetWindowTextW(hwnd, buf, n + 1)
+            if buf.value == TITLE:
+                found.append(hwnd)
+                return False
+        return True
+
+    user32.EnumWindows(cb, 0)
+    return found[0] if found else None
+
+
+def raise_window(hwnd: int) -> None:
+    """Restore a minimized window and bring it to the front (Windows allows it after the second start
+    called AllowSetForegroundWindow)."""
+    user32 = ctypes.windll.user32
+    sw_restore, sw_show = 9, 5
+    user32.ShowWindow(hwnd, sw_restore if user32.IsIconic(hwnd) else sw_show)
+    user32.BringWindowToTop(hwnd)
+    user32.SetForegroundWindow(hwnd)
+
+
 def install_guards(edgechromium, port: int) -> None:
     """Hook the WebView2 backend's own handlers (pywebview 6.2.1, pinned; tests check the names exist).
 
@@ -362,15 +400,18 @@ class NativeWindow:
     # -- public
 
     def focus(self) -> bool:
-        """Bring the window to the front, restoring it if minimized. False if there is no window."""
-        w = self.window
-        if not w or self.failed:
+        """Bring the window to the front, restoring it if minimized. False if there is no window.
+
+        Uses the Windows calls on the window's own handle: pywebview's restore() waits for the page,
+        which does not load while the window is minimized, so a second start could time out.
+        """
+        if not self.window or self.failed:
+            return False
+        hwnd = own_window_handle()
+        if not hwnd:
             return False
         try:
-            w.restore()
-            w.show()
-            w.on_top = True
-            w.on_top = False
+            raise_window(hwnd)
             return True
         except Exception as exc:
             log.info("app window: focus failed: %s", type(exc).__name__)

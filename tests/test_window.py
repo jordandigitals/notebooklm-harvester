@@ -252,12 +252,15 @@ def test_close_during_a_harvest_yes_finishes_the_file_then_closes():
     assert nw._on_closing() is True
 
 
-def test_focus_restores_and_raises_the_window():
-    calls = []
-    fake = types.SimpleNamespace(restore=lambda: calls.append("restore"), show=lambda: calls.append("show"))
+def test_focus_restores_and_raises_the_window(monkeypatch):
+    """By the window's own handle, so a minimized window whose page has not loaded still comes back."""
+    raised = []
+    monkeypatch.setattr(window, "own_window_handle", lambda: 4242)
+    monkeypatch.setattr(window, "raise_window", raised.append)
     nw = _nw(_Worker())
-    nw.window = fake
-    assert nw.focus() is True and calls == ["restore", "show"]
+    assert nw.focus() is True and raised == [4242]
+    monkeypatch.setattr(window, "own_window_handle", lambda: None)
+    assert nw.focus() is False  # no window found: the second start then opens the page instead
     nw.window = None
     assert nw.focus() is False
 
