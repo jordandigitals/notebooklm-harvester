@@ -16,6 +16,13 @@ Windows package: FFmpeg (ffmpeg.exe and ffprobe.exe), version 9.0.2 "essentials"
 Windows package: Playwright for Python (Apache License 2.0), including its Node.js driver
   (Node.js: MIT License). Used only for the "Sign in" window. https://github.com/microsoft/playwright-python
 
+Windows package: the app window (D-035)
+  pywebview 6.2.1 (BSD-3-Clause), https://github.com/r0x0r/pywebview, which includes Microsoft's WebView2
+  interop libraries (Microsoft.Web.WebView2.Core and .WinForms, under Microsoft's WebView2 SDK licence);
+  pythonnet 3.2.1 (MIT) and clr_loader (MIT), https://github.com/pythonnet/pythonnet; cffi (MIT-0);
+  pycparser (BSD-3-Clause); bottle (MIT); proxy_tools (MIT). The WebView2 runtime itself is part of
+  Windows and is not included.
+
 Python runtime and libraries bundled by PyInstaller, each under its own licence, including:
   Python (PSF License), Flask and Werkzeug (BSD-3-Clause), notebooklm-py (MIT),
   rookie-cookies, httpx, rich and their dependencies (see each project's licence).

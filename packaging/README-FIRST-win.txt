@@ -4,15 +4,15 @@ NotebookLM Harvester for Windows
 2. Open the "NotebookLM Harvester" folder and double-click "NotebookLM Harvester.exe".
    The first time, Windows SmartScreen may say it protected your PC, because the app is
    not signed. Choose "More info", then "Run anyway".
-3. The app opens a page in your browser. Use Add account:
+3. The app opens in its own window (on a PC without Microsoft's WebView2 it opens in your
+   browser instead, and says so). Closing the window quits the app. Use Add account:
    - Continue with Google (recommended): a separate window opens in Chrome (or Edge) just
      for this app. It looks like a blank guest window; that is expected. Sign in to Google
      there once and the app remembers it. The app never sees your password, and your
      normal Chrome stays open and is not touched.
    - Or "Use a Chrome profile instead" (shortcut): first quit Chrome completely (close every
-     window, then right-click the Chrome icon near the clock and choose Exit). Open the
-     page in another browser, such as Edge, for that step. Then press Add next to the
-     profile.
+     window, then right-click the Chrome icon near the clock and choose Exit). The app's own
+     window keeps working while Chrome is closed. Then press Add next to the profile.
 4. If Windows Security reports "Trojan:Win64/InfoStealer" for rookie_cookies, that is the
    part that reads Chrome's saved sign-in. It only reads the Google sign-in cookies it
    needs from your own Chrome on this computer.

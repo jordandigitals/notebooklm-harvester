@@ -325,6 +325,11 @@ def install_fake_adapter() -> None:
         if "glacier" in overview.title.lower():
             # A predictable failure so the queue's failed state and Retry can be seen and tested.
             raise adapter.AdapterError("Could not reach NotebookLM (demo failure for titles with glacier).")
+        delay = float(os.environ.get("NLH_DEMO_DOWNLOAD_S", "0"))  # tests: a slow download (quit mid-file)
+        if delay:
+            import time as _t
+
+            _t.sleep(delay)
         if "src" not in tone_cache:
             src = paths.app_home() / "demo-download.m4a"
             _tone(src, 4.0)

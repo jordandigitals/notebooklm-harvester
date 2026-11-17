@@ -1,8 +1,8 @@
 # Install and run
 
-NotebookLM Harvester runs on your own computer. It opens a page in your browser at a
-local address (127.0.0.1) and saves your NotebookLM Audio Overviews as MP3 files in a
-folder you choose. It only reads from NotebookLM; it never changes anything there.
+NotebookLM Harvester runs on your own computer. It shows a local page (127.0.0.1): on
+Windows in its own app window, elsewhere in your browser. It saves your NotebookLM Audio
+Overviews as MP3 files in a folder you choose. It only reads from NotebookLM; it never changes anything there.
 
 ## Easiest: the ready-made app (no Python or ffmpeg needed)
 
@@ -103,7 +103,7 @@ On Windows the folder is inside your user profile, which Windows already limits 
 ## Windows notes
 
 - **Two ways to add an account; Continue with Google is recommended.** It opens a separate window in Chrome (or Edge, which every Windows PC has) kept just for this app (it looks like a blank guest window; that is expected); you sign in once and the app remembers it, your normal Chrome stays open and untouched, nothing reads Chrome's saved data, and Windows Security raises no alert. Use a Chrome profile instead is the shortcut for an account already signed in to Chrome, with the two catches below.
-- **Quit Chrome before adding an account from a Chrome profile.** Windows keeps Chrome's sign-in data locked while Chrome runs, including in the background. Close every Chrome window, then right-click the Chrome icon near the clock (if shown) and choose Exit. Open this page in another browser, such as Edge, for that step. You can reopen Chrome as soon as the account shows Signed in.
+- **Quit Chrome before adding an account from a Chrome profile.** Windows keeps Chrome's sign-in data locked while Chrome runs, including in the background. Close every Chrome window, then right-click the Chrome icon near the clock (if shown) and choose Exit. On Windows the app's own window keeps working meanwhile; in browser mode, open this page in another browser, such as Edge, for that step. You can reopen Chrome as soon as the account shows Signed in.
 - **Windows Security may quarantine the Chrome reader.** Reading Chrome's saved sign-in is what info-stealing malware also does, so Microsoft Defender can flag the reader file (`rookie_cookies.pyd`, in `.venv` or inside the ready-made app's `_internal` folder) as `Trojan:Win64/InfoStealer`. It is part of the pinned notebooklm-py dependency and only reads the Google sign-in cookies it needs from your own Chrome on your own computer. To use the Chrome route, open Windows Security, Virus and threat protection, Protection history, select that entry, then Actions and Allow on device. If you would rather not, use **Continue with Google** instead: it signs in once in a separate window kept just for this app and never reads your normal Chrome.
 - **Long paths.** On Windows, long overview titles are shortened automatically so the saved path stays under 240 characters (the MP3 tags keep the full title), and an output folder too deep even for that is refused with a plain message asking for a shorter folder.
 
@@ -114,3 +114,13 @@ git pull
 ```
 
 Then start the app as usual; the launcher installs any changed requirements.
+
+## The app window (Windows)
+
+On Windows the app opens in its own window, using Microsoft's WebView2 (part of Windows 11 and of most
+Windows 10 PCs). Closing the window quits the app; if a harvest is running it asks first, then finishes the
+current file before closing. Starting the app again brings the open window to the front. If WebView2 is
+missing or the window cannot open, the app opens in your browser instead and says so in one line. To always
+use the browser, choose Settings, App window, "Open the app in: Browser" (or start it with `--browser`, or
+set `NLH_BROWSER=1`). Links to other sites, such as NotebookLM itself, open in your browser. Notifications
+work only in the browser.
