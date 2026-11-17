@@ -4,7 +4,7 @@ import { api } from "./api.js";
 import { $, el, icon, button, show, shortDate, duration, size, plural, role } from "./dom.js";
 import { toast, popover, closePopover } from "./ui.js";
 import { openFolder } from "./accounts.js";
-import { play } from "./player.js";
+import { play, marker } from "./player.js";
 import { fold } from "./search.js";
 
 export const hist = {
@@ -304,6 +304,7 @@ function drawRows() {
       const st = status(r);
       if (st) li.append(st);
       li.append(actions(r));
+      if (r.present) li.append(marker(r.id, r.position_s, r.duration_s));
       list.append(li);
     }
     body.append(list);
@@ -325,6 +326,7 @@ function drawRows() {
       if (r.file_name !== expectedName(r.title)) t.append(el("div", "hp", r.file_name));
       const st = status(r);
       if (st) t.append(st);
+      if (r.present) t.append(marker(r.id, r.position_s, r.duration_s));
       const nbCell = el("td", "", r.notebook);
       if (r.shared) nbCell.append(" ", el("span", "rbadge rbadge-shared", "Shared with me"));
       row.append(t, nbCell, el("td", "", r.account), el("td", "nowrap", shortDate(r.saved_at)),

@@ -4,7 +4,7 @@ import { api } from "./api.js";
 import { $, el, button, pill, shortDate, duration, size, role } from "./dom.js";
 import { toast } from "./ui.js";
 import { openFolder } from "./accounts.js";
-import { play } from "./player.js";
+import { play, knownPosition } from "./player.js";
 
 let returnFocus = null;
 
@@ -76,6 +76,8 @@ export async function openDrawer(row, account, opts = {}) {
       field(kv, "Saved", shortDate(s.saved_at));
       field(kv, "File", s.path, s.path);
       field(kv, "Length", duration(s.duration_s));
+      const listened = knownPosition(s.id, s.position_s);
+      if (listened > 0) field(kv, "Listened to", `${duration(listened)} of ${duration(s.duration_s)}`);
       field(kv, "Size", size(s.size_bytes));
       field(kv, "Hash", (s.sha256 || "").slice(0, 16), s.sha256);
       field(kv, "Found by", { harvest: "", studio: "Made in Studio", relinked: "Scan folder (moved file)", scan: "Scan folder" }[s.origin] ?? "");

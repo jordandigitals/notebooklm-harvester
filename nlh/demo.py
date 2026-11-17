@@ -217,8 +217,12 @@ def seed(ledger, rows: list[DemoRow] | None = None) -> None:
     outputs[1].mkdir(parents=True, exist_ok=True)
     sample = home / "demo-sample.mp3"
     tone = home / "demo-tone.m4a"
-    _tone(tone, 3.0)
+    # NLH_DEMO_SAMPLE_S (tests and screenshots of resume playback): a longer sample, and saved rows
+    # that record its real size and length, so a saved position is not dropped as a changed file.
+    sample_s = float(os.environ.get("NLH_DEMO_SAMPLE_S") or 0)
+    _tone(tone, sample_s or 3.0)
     media.convert_to_mp3(tone, sample, media.build_tags("Demo", "Demo", None, "demo", "demo"))
+    real = (sample.stat().st_size, media.probe(sample).duration) if sample_s else None
     accts = []
     for i, a in enumerate(ACCOUNTS):
         acct = ledger.add_account(a["profile"], a["label"], a["email"], a["chrome"])
@@ -270,8 +274,8 @@ def seed(ledger, rows: list[DemoRow] | None = None) -> None:
                     notebook_title=r.notebook_title,
                     created_at=r.created_at,
                     saved_path=str(path),
-                    size_bytes=r.size_bytes,
-                    duration_s=r.duration_s,
+                    size_bytes=real[0] if real and r.status == "saved" else r.size_bytes,
+                    duration_s=real[1] if real and r.status == "saved" else r.duration_s,
                     sha256="demo",
                     origin=r.origin,
                 )

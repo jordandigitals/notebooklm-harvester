@@ -237,7 +237,8 @@ def test_every_route_outside_the_allow_list_is_refused_to_a_phone(app):
         for method in sorted(rule.methods - {"OPTIONS", "HEAD"}):
             allowed = rule.endpoint in server.PHONE_ENDPOINTS and method == "GET"
             open_ = rule.endpoint in server.PHONE_OPEN_ENDPOINTS
-            if allowed or open_:
+            position = rule.endpoint in server.PHONE_WRITE_ENDPOINTS and method == "POST"  # D-037, own tests
+            if allowed or open_ or position:
                 continue
             r = c.open(path, method=method, headers={"X-NLH-Req": "1"}, json={})
             assert r.status_code == 403, f"{method} {rule.rule} gave {r.status_code}"

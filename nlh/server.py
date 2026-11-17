@@ -10,6 +10,7 @@ import dataclasses
 import hmac
 import json
 import logging
+import math
 import os
 import queue
 import re
@@ -65,8 +66,11 @@ PHONE_ENDPOINTS = frozenset(
         "item_details",
         "stats",
         "play",
+        "get_position",
     }
 )
+# The one write a paired phone may make (D-037): save its listening position. Nothing else.
+PHONE_WRITE_ENDPOINTS = frozenset({"save_position"})
 PHONE_OPEN_ENDPOINTS = frozenset({"phone_pair_page", "phone_pair_post"})  # before a phone is paired
 # What a phone does not need and must not see over plain HTTP: account emails, Chrome profiles,
 # folders and settings are dropped; full paths are cut to the file or folder name.
@@ -332,7 +336,12 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
                 " Open the link or scan the code with this phone.</p>",
                 403,
             )
-        if request.method not in ("GET", "HEAD") or request.endpoint not in PHONE_ENDPOINTS:
+        phone_write = request.method == "POST" and request.endpoint in PHONE_WRITE_ENDPOINTS
+        if phone_write and request.headers.get("X-NLH-Req") != "1":
+            return jsonify(error="Refused: missing request header."), 403  # cross-site forms cannot set it
+        if not phone_write and (
+            request.method not in ("GET", "HEAD") or request.endpoint not in PHONE_ENDPOINTS
+        ):
             if request.path.startswith("/api/"):
                 return jsonify(error="The phone can only browse and play. Use the laptop for this."), 403
             return phone_page("<p>The phone can only browse and play. Use the laptop for this.</p>", 403)
@@ -762,6 +771,7 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
         accts = led.accounts()
         harvested = {h.artifact_id: h for h in led.harvests()}
         attempts = led.last_attempts()
+        positions = led.positions()  # resume playback (P2-J): valid, non-zero positions only
         rows, never = [], []
         for a in accts:
             if not ensure_listing(a.id):
@@ -790,6 +800,7 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
                             "saved_at": h.saved_at if h else None,
                             "size_bytes": h.size_bytes if h else None,
                             "duration_s": h.duration_s if h else None,
+                            "position_s": positions.get(h.id, 0.0) if h else 0.0,
                             "origin": h.origin if h else None,
                             "clash": bool(h and _CLASH.search(Path(h.saved_path).stem)),
                             "last_error": (attempts.get(ov.artifact_id) or {}).get("message")
@@ -964,7 +975,13 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
             f"Accounts: {len(led.accounts())} (status: {statuses})",
             f"Saved files in ledger: {len(led.harvests())}",
             f"Ledger schema: {led.conn.execute('PRAGMA user_version').fetchone()[0]}",
+            f"Resume playback: {'on' if led.positions_ok else 'off (the copy before the upgrade failed)'}",
         ]
+        if led.backup_path().exists():
+            lines.append(
+                f"Ledger copy from before the v5 upgrade: {led.backup_path()} "
+                "(safe to delete by hand once you are happy with this version)"
+            )
         return jsonify(text=redact("\n".join(lines)))
 
     @app.get("/api/item/<path:artifact_id>")
@@ -1106,6 +1123,7 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
             "playable": ok,
             "play_reason": why,
             "sha256": h.sha256,
+            "position_s": led.position(h) if present else 0.0,  # resume playback (P2-J)
         }
 
     @app.get("/api/history/page")
@@ -1244,6 +1262,55 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
         resp = send_file(Path(h.saved_path).resolve(), mimetype="audio/mpeg", conditional=True, max_age=0)
         resp.headers["Cache-Control"] = "no-store"
         return resp
+
+    # ------------------------------------------------------------ resume playback (P2-J, D-037)
+
+    position_writes: dict[tuple[int, bool], float] = {}  # (harvest id, final) -> last accepted write
+    saved_final = threading.Event()  # set when the page's last save before close arrives
+    playing = {"until": 0.0}  # the laptop page reported playing until this time (monotonic)
+    app.config["position_saved"] = saved_final
+    app.config["laptop_playing"] = lambda: time.monotonic() < playing["until"]
+
+    @app.get("/api/position/<int:harvest_id>")
+    def get_position(harvest_id):
+        """Where the listener left this file (0 = start). Stale positions read as 0."""
+        h = led.harvest_by_id(harvest_id)
+        if not h:
+            abort(404)
+        return jsonify(position_s=led.position(h) if h.file_present else 0.0, available=led.positions_ok)
+
+    @app.post("/api/position/<int:harvest_id>")
+    def save_position(harvest_id):
+        """Save the listening position: one number, kept apart from files, tags and harvest rows."""
+        h = led.harvest_by_id(harvest_id)
+        if not h:
+            abort(404)
+        data = request.get_json(silent=True)
+        data = data if isinstance(data, dict) else {}
+        pos = data.get("position_s")
+        final = data.get("final") is True
+        is_number = isinstance(pos, (int, float)) and not isinstance(pos, bool)
+        if not is_number or not math.isfinite(pos) or pos < 0 or pos > float(h.duration_s) + 1:
+            return jsonify(error="That position is not valid for this file."), 400
+        if final:
+            saved_final.set()  # the window may close now; the save below still happens
+        if not g.get("phone"):
+            playing["until"] = time.monotonic() + 12 if data.get("playing") is True else 0.0
+        if not led.positions_ok:
+            return jsonify(saved=False, reason="unavailable")
+        ok, _why = playable(h, led.account(h.account_id)) if h.file_present else (False, "")
+        if not ok:
+            return jsonify(saved=False, reason="not playable")
+        key = (h.id, final)
+        last = position_writes.get(key, 0.0)
+        now_m = time.monotonic()
+        if (
+            now_m - last < 1.0
+        ):  # at most one accepted write per second per file, so a stuck page cannot hammer the ledger
+            return jsonify(saved=False, reason="too soon")
+        position_writes[key] = now_m
+        kept = led.set_position(h, float(pos), "phone" if g.get("phone") else "laptop")
+        return jsonify(saved=True, position_s=kept)
 
     @app.post("/api/history/<int:harvest_id>/redownload")
     def redownload(harvest_id):
@@ -1646,6 +1713,8 @@ def _show(app: Flask, cfg: dict, url: str, port: int) -> None:
         app.config["APP_WINDOW"] = True
         app.config["focus"] = nw.focus
         app.config["close_window"] = nw.close_from_page  # the page's Quit closes the window
+        nw.playing = app.config["laptop_playing"]  # resume playback (P2-J): save before closing
+        nw.position_saved = app.config["position_saved"]
         if nw.run():
             log.info("app window closed; stopping")
             app.config["WINDOW_CLOSED"] = True

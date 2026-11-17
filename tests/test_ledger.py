@@ -72,7 +72,7 @@ def test_transaction_rolls_back(ledger):
 
 
 def test_schema_version(ledger):
-    assert ledger.conn.execute("PRAGMA user_version").fetchone()[0] == 4
+    assert ledger.conn.execute("PRAGMA user_version").fetchone()[0] == 5  # v5: resume playback (P2-J)
 
 
 def test_artifact_id_unique(ledger):

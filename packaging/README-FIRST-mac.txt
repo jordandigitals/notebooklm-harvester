@@ -21,3 +21,8 @@ Your data (sign-ins, the list of saved files, the log) stays in ~/.nlh on this M
 
 Updating: drag the new "NotebookLM Harvester.app" over the old one and choose Replace. No copy of
 the old version is kept or needed. Your saved files, history and settings in ~/.nlh are not touched.
+
+New in this version: the player continues where you stopped, a few seconds back, on the laptop and on
+a paired phone. To make room for this, the first start of this version keeps one copy of the list of
+saved files, named ledger-before-v5.db, in ~/.nlh. It is safe to delete by hand once you are happy
+with this version; the app never removes it.

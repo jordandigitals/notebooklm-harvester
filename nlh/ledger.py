@@ -15,8 +15,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from nlh import paths
+from nlh.log import get_logger
 
-SCHEMA_VERSION = 4
+log = get_logger()
+
+SCHEMA_VERSION = 5
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS accounts (
@@ -107,6 +110,39 @@ CREATE INDEX IF NOT EXISTS studio_queue_day ON studio_queue(account_id, submit_d
 """
 
 
+# Schema v5 (resume playback, P2-J). One row per saved file, updated in place and never deleted
+# ("cleared" is position 0). The file's identity when the position was saved (hash, length, size)
+# is kept beside it, so a position never carries over to a different file in the same row.
+POSITION_SCHEMA = """
+CREATE TABLE IF NOT EXISTS play_positions (
+  harvest_id     INTEGER PRIMARY KEY REFERENCES harvests(id),
+  position_s     REAL NOT NULL,
+  sha256         TEXT NOT NULL,
+  duration_s     REAL NOT NULL,
+  size_bytes     INTEGER NOT NULL,
+  updated_at     TEXT NOT NULL,
+  device         TEXT NOT NULL
+);
+"""
+
+# Taken once, with SQLite's own backup call, before the first upgrade to schema v5 (standing
+# decision: a copy before every schema change). Never overwritten and never removed by the app.
+BACKUP_BEFORE_V5 = "ledger-before-v5.db"
+
+# Resume rules (P2-J, confirmed values).
+IGNORE_UNDER_S = 10.0  # a position this early counts as unplayed
+FINISHED_TAIL_S = 15.0  # this close to the end counts as finished: the position is cleared
+
+
+def resume_value(position_s: float, duration_s: float) -> float:
+    """The position worth keeping: 0 when too early or within the finished tail."""
+    if position_s < IGNORE_UNDER_S:
+        return 0.0
+    if duration_s and position_s >= duration_s - FINISHED_TAIL_S:
+        return 0.0
+    return round(position_s, 1)
+
+
 def fold(text: str | None) -> str:
     """Lower case with accents removed, for case- and accent-insensitive search."""
     import unicodedata
@@ -177,7 +213,8 @@ class Ledger:
         c.executescript(SCHEMA)
         self._migrate()
         c.executescript(STUDIO_SCHEMA)  # v3 -> v4: new tables only, existing rows untouched
-        c.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        self.positions_ok = self._upgrade_v5()  # False: the copy failed, stay v4, resume off
+        c.execute(f"PRAGMA user_version = {SCHEMA_VERSION if self.positions_ok else 4}")
         c.commit()
 
     @property
@@ -201,6 +238,57 @@ class Ledger:
         cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(harvests)")}
         if "origin" not in cols:  # v2 -> v3
             self.conn.execute("ALTER TABLE harvests ADD COLUMN origin TEXT NOT NULL DEFAULT 'harvest'")
+
+    def backup_path(self) -> Path:
+        """Where the copy taken before the v5 upgrade lives (beside the ledger)."""
+        return Path(self.path).parent / BACKUP_BEFORE_V5
+
+    def _upgrade_v5(self) -> bool:
+        """v4 -> v5: copy the ledger first (only if it holds rows), then add the positions table.
+
+        The copy is taken once and never overwritten. If it cannot be taken, the upgrade is
+        skipped for this start and resume is off; the next start tries again.
+        """
+        c = self.conn
+        if c.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'play_positions'"
+        ).fetchone():
+            return True
+        has_rows = any(
+            c.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone()  # noqa: S608 (fixed names)
+            for table in ("accounts", "harvests", "attempts")
+        )
+        target = self.backup_path()
+        if has_rows and not target.exists():
+            try:
+                self._copy_to(target)
+            except (sqlite3.Error, OSError) as exc:
+                log.info(
+                    "ledger: copy before the v5 upgrade failed (%s); resume is off this start",
+                    type(exc).__name__,
+                )
+                return False
+            log.info("ledger: copied to %s before the v5 upgrade", target.name)
+        c.executescript(POSITION_SCHEMA)
+        return True
+
+    def _copy_to(self, target: Path) -> None:
+        """A consistent copy through SQLite's backup call (safe with WAL), written under a temporary
+        name and then moved into place, so a failed copy never leaves a half file under the real name."""
+        self.conn.commit()
+        tmp = target.with_name(target.name + ".part")
+        try:
+            dst = sqlite3.connect(tmp)
+            try:
+                self.conn.backup(dst)
+            finally:
+                dst.close()
+            if target.exists():  # never overwrite an earlier copy
+                raise FileExistsError(target)
+            tmp.replace(target)
+        finally:
+            if tmp.exists():
+                tmp.unlink()  # only our own unfinished temporary file
 
     def close(self) -> None:
         """Close every connection this ledger opened."""
@@ -328,6 +416,73 @@ class Ledger:
         """One ledger row by its own id (used by the player route; no paths from the page)."""
         r = self.conn.execute("SELECT * FROM harvests WHERE id = ?", (harvest_id,)).fetchone()
         return Harvest(**dict(r)) if r else None
+
+    # ------------------------------------------------------------ play positions (v5, P2-J)
+
+    @staticmethod
+    def _same_file(p: sqlite3.Row, h: Harvest) -> bool:
+        """The stored position belongs to this row's current file: same hash, length and size, and
+        the file on disk still has that size (catches a file swapped outside the app)."""
+        if p["sha256"] != h.sha256 or p["size_bytes"] != h.size_bytes:
+            return False
+        if abs(float(p["duration_s"]) - float(h.duration_s)) > 0.01:
+            return False
+        try:
+            return Path(h.saved_path).stat().st_size == h.size_bytes
+        except OSError:
+            return False
+
+    def position(self, h: Harvest) -> float:
+        """The saved position for this file, or 0. A stale one (the file changed) is set to 0."""
+        if not self.positions_ok:
+            return 0.0
+        p = self.conn.execute("SELECT * FROM play_positions WHERE harvest_id = ?", (h.id,)).fetchone()
+        if not p or not p["position_s"]:
+            return 0.0
+        if not self._same_file(p, h):
+            self._clear_position(h.id)
+            return 0.0
+        return float(p["position_s"])
+
+    def positions(self) -> dict[int, float]:
+        """Every non-zero, still valid position by harvest id (stale ones are set to 0)."""
+        if not self.positions_ok:
+            return {}
+        rows = self.conn.execute(
+            "SELECT p.*, h.id AS hid FROM play_positions p JOIN harvests h ON h.id = p.harvest_id "
+            "WHERE p.position_s > 0"
+        ).fetchall()
+        out: dict[int, float] = {}
+        for p in rows:
+            h = self.harvest_by_id(p["hid"])
+            if h and self._same_file(p, h):
+                out[h.id] = float(p["position_s"])
+            else:
+                self._clear_position(p["harvest_id"])
+        return out
+
+    def set_position(self, h: Harvest, position_s: float, device: str) -> float:
+        """Save where the listener is in this file; returns the value kept (0 = cleared)."""
+        value = resume_value(position_s, h.duration_s)
+        with self.transaction() as c:
+            c.execute(
+                "INSERT INTO play_positions (harvest_id, position_s, sha256, duration_s, size_bytes, "
+                "updated_at, device) VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(harvest_id) DO UPDATE SET position_s = excluded.position_s, "
+                "sha256 = excluded.sha256, duration_s = excluded.duration_s, "
+                "size_bytes = excluded.size_bytes, updated_at = excluded.updated_at, "
+                "device = excluded.device",
+                (h.id, value, h.sha256, h.duration_s, h.size_bytes, now(), device),
+            )
+        return value
+
+    def _clear_position(self, harvest_id: int) -> None:
+        """Set a position to 0 (rows are never deleted)."""
+        with self.transaction() as c:
+            c.execute(
+                "UPDATE play_positions SET position_s = 0, updated_at = ? WHERE harvest_id = ?",
+                (now(), harvest_id),
+            )
 
     # ------------------------------------------------------------ attempts
 

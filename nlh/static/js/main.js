@@ -11,7 +11,7 @@ import { acctState, renderAccountList, renderAccountCard, syncScopeButtons, togg
 import { renderHistory, hist, historyHooks } from "./history.js";
 import { renderStats } from "./stats.js";
 import { renderStudio, studioHooks } from "./studio.js";
-import { playerState, togglePlay } from "./player.js";
+import { playerState, togglePlay, savePositionNow, carryOverPositions } from "./player.js";
 import { renderQueue, retryItems, setQueuePrefs } from "./queue.js";
 import { renderSettings, applyTheme, prefs } from "./settings.js";
 import { closeDrawer } from "./drawer.js";
@@ -294,6 +294,7 @@ async function init() {
   $("q").value = lib.query;
   show($("q-clear"), !!lib.query);
   await loadLibrary();
+  carryOverPositions(); // resume playback: one time, from this browser's older store (not awaited)
   if (!hasState(location.search) && app.settings.default_view) {
     const v = lib.views.find((x) => x.name === app.settings.default_view);
     if (v) applyView(v);
@@ -337,6 +338,7 @@ async function init() {
   $("quit").addEventListener("click", async () => {
     if (!(await confirmDialog("Quit the harvester?", "You can start it again from its icon. Nothing is lost.", "Quit"))) return;
     try {
+      await savePositionNow(); // resume playback: keep where the listener was (at most 1.5 s)
       const res = await api("/api/quit", { method: "POST" });
       // In the app window the window closes by itself; this text shows only if it cannot.
       const where = res && res.window ? "window" : "tab";

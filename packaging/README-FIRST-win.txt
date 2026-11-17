@@ -28,3 +28,8 @@ Your data (sign-ins, the list of saved files, the log) stays in %LOCALAPPDATA%\N
 
 Updating: quit the app, then replace the "NotebookLM Harvester" folder with the new one. No copy
 of the old version is kept or needed. Your saved files, history and settings are not touched.
+
+New in this version: the player continues where you stopped, a few seconds back, on the laptop and on
+a paired phone. To make room for this, the first start of this version keeps one copy of the list of
+saved files, named ledger-before-v5.db, in %LOCALAPPDATA%\NLH. It is safe to delete by hand once
+you are happy with this version; the app never removes it.

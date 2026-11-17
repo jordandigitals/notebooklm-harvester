@@ -35,6 +35,8 @@ log = get_logger()
 WEBVIEW2_CLIENT = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"  # Microsoft's id for the Evergreen runtime
 FALLBACK_NOTE = "The app window could not open on this computer, so the app opened in your browser."
 CLOSING_NOTE = "Finishing the current file, then closing."
+SAVE_WAIT_S = 1.5  # resume playback (P2-J): how long a close waits for the page's last position save
+SAVE_SCRIPT = "window.__nlhSavePosition && window.__nlhSavePosition()"
 QUIT_QUESTION = "A harvest is running. Quit anyway?"
 NOTIFY_NOTE = "Notifications work when the app is open in your browser."
 SAVED_NOTE = "Saved to Downloads as {name}"  # Mac only: WKWebView shows no download bar (D-035 Mac ruling 4)
@@ -354,6 +356,11 @@ class NativeWindow:
         self.failed = False
         self.quitting = False
         self.may_close = False
+        # Resume playback (P2-J): set by the server. playing() is True while the page is playing;
+        # position_saved is set when the page's last save before closing has arrived.
+        self.playing = lambda: False
+        self.position_saved: threading.Event | None = None
+        self.saving = False
 
     # -- events
 
@@ -397,8 +404,8 @@ class NativeWindow:
         """Window close asked. False keeps the window open."""
         if self.may_close or self.failed:
             return True
-        if self.quitting:
-            return False  # already finishing the current file
+        if self.quitting or self.saving:
+            return False  # already finishing the current file, or saving the position
         if self.harvest_running():
             if not self._ask_quit():
                 return False
@@ -407,14 +414,38 @@ class NativeWindow:
             threading.Thread(target=self._finish_then_close, name="nlh-quit", daemon=True).start()
             return False
         self._cancel_all()  # a refresh or check simply ends with the app
+        if self.playing():
+            # Keep the last seconds: ask the page to save, wait off the window's thread, then close.
+            self.saving = True
+            threading.Thread(target=self._save_then_close, name="nlh-save", daemon=True).start()
+            return False
         self.may_close = True
         return True
+
+    def _save_position(self) -> None:
+        """Ask the page to save where the player is; wait up to SAVE_WAIT_S for it to arrive.
+        Never runs on the window's own thread (waiting there would stop the page answering)."""
+        if not self.playing() or self.position_saved is None:
+            return
+        self.position_saved.clear()
+        self._js(SAVE_SCRIPT)
+        if not self.position_saved.wait(SAVE_WAIT_S):
+            log.info("app window: the page did not save its position in time; closing anyway")
+
+    def _save_then_close(self):
+        self._save_position()
+        self.may_close = True
+        try:
+            self.window.destroy()
+        except Exception:
+            pass
 
     def _finish_then_close(self):
         """Show the closing note, wait for the worker's safe step (never a force-kill), then close."""
         self._js("window.__nlhClosing && window.__nlhClosing()")
         while self.harvest_running():
             time.sleep(0.3)
+        self._save_position()
         self.may_close = True
         try:
             self.window.destroy()

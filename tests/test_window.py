@@ -427,3 +427,70 @@ def test_leftover_part_from_a_crash_is_never_renamed(tmp_path):
     assert naming.unique_path(tmp_path, "Weekly Review").name == "Weekly Review (2).mp3"
     assert (tmp_path / "Weekly Review.mp3.part").read_bytes() == b"half"
     assert not (tmp_path / "Weekly Review.mp3").exists()
+
+
+# ---------------------------------------------------------------- resume playback (P2-J)
+
+
+def test_close_while_playing_saves_the_position_then_closes():
+    """No lost seconds: the window asks the page to save, waits off its own thread, then closes."""
+    nw = _nw(_Worker())
+    saved = threading.Event()
+    nw.playing = lambda: True
+    nw.position_saved = saved
+    assert nw._on_closing() is False  # stays open for the save
+    assert nw._on_closing() is False  # a second close while saving changes nothing
+    for _ in range(20):
+        if any("__nlhSavePosition" in s for s in nw.window.scripts):
+            break
+        time.sleep(0.05)
+    assert any("__nlhSavePosition" in s for s in nw.window.scripts)
+    assert not nw.window.destroyed
+    saved.set()  # the page's final save reached the server
+    for _ in range(20):
+        if nw.window.destroyed:
+            break
+        time.sleep(0.05)
+    assert nw.window.destroyed and nw.may_close
+    assert nw._on_closing() is True
+
+
+def test_close_while_playing_closes_anyway_when_the_page_does_not_answer():
+    nw = _nw(_Worker())
+    nw.playing = lambda: True
+    nw.position_saved = threading.Event()  # never set
+    start = time.monotonic()
+    assert nw._on_closing() is False
+    while not nw.window.destroyed and time.monotonic() - start < 4:
+        time.sleep(0.05)
+    assert nw.window.destroyed
+    assert window.SAVE_WAIT_S - 0.2 <= time.monotonic() - start < window.SAVE_WAIT_S + 1.5
+
+
+def test_close_while_paused_closes_at_once():
+    nw = _nw(_Worker())
+    nw.playing = lambda: False
+    nw.position_saved = threading.Event()
+    assert nw._on_closing() is True
+    assert not nw.window.scripts
+
+
+def test_quit_during_a_harvest_also_saves_before_closing():
+    harvest = _Job("harvest")
+    nw = _nw(_Worker(harvest), ask=True)
+    saved = threading.Event()
+    nw.playing = lambda: True
+    nw.position_saved = saved
+    assert nw._on_closing() is False
+    harvest.state = "cancelled"
+    for _ in range(20):
+        if any("__nlhSavePosition" in s for s in nw.window.scripts):
+            break
+        time.sleep(0.1)
+    assert any("__nlhSavePosition" in s for s in nw.window.scripts)
+    saved.set()
+    for _ in range(20):
+        if nw.window.destroyed:
+            break
+        time.sleep(0.1)
+    assert nw.window.destroyed

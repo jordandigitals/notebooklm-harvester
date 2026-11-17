@@ -5,6 +5,7 @@ import { api } from "./api.js";
 import { $, el, icon, button, pill, show, shortDate, duration, size, plural, STATUS_TEXT, role } from "./dom.js";
 import { toast, confirmDialog, promptDialog, popover, closePopover } from "./ui.js";
 import { openDrawer } from "./drawer.js";
+import { marker } from "./player.js";
 import {
   fold, parseQuery, haystack, matchesQuery, matchesFilters, comparator, highlightRanges,
 } from "./search.js";
@@ -333,6 +334,7 @@ function renderRow(r, i) {
   const right = el("div", "rright");
   right.append(pill(r.status));
   row.append(cell, body, right);
+  if (r.harvest_id && r.status === "saved") row.append(marker(r.harvest_id, r.position_s, r.duration_s));
   return row;
 }
 

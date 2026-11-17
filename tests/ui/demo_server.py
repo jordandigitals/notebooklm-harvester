@@ -22,8 +22,9 @@ def free_port() -> int:
 class DemoServer:
     """Context manager: a demo-mode server and its first-open URL (with the page key)."""
 
-    def __init__(self, rows: int = 2000, home: str | None = None):
+    def __init__(self, rows: int = 2000, home: str | None = None, env: dict | None = None):
         self.rows = rows
+        self.extra_env = env or {}
         self.home = home or tempfile.mkdtemp(prefix="nlh-ui-")
         self.port = free_port()
         self.proc = None
@@ -37,6 +38,7 @@ class DemoServer:
             "NLH_PORT": str(self.port),
             "NLH_NO_BROWSER": "1",
             "PYTHONPATH": str(ROOT),
+            **self.extra_env,
         }
         env.pop("NLH_HOME", None)
         # The server logs every request; write it to a file. A pipe that nobody reads fills

@@ -172,7 +172,7 @@ def test_migration_from_v3_keeps_rows(home):
     c.close()
     led = Ledger(path)
     try:
-        assert led.conn.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert led.conn.execute("PRAGMA user_version").fetchone()[0] == 5  # v3 -> v4 -> v5 in one open
         assert led.harvest("a").overview_title == "T"
         tables = {r[0] for r in led.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert {"studio_plans", "studio_queue"} <= tables
