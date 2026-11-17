@@ -421,6 +421,20 @@ class NativeWindow:
         except Exception:
             pass
 
+    def close_from_page(self) -> bool:
+        """The page's Quit in window mode: close the window as the close button would (no question:
+        the server refuses Quit while any job runs). False if there is no window to close."""
+        if not self.window or self.failed:
+            return False
+        self.may_close = True
+        try:
+            self.window.destroy()
+            return True
+        except Exception as exc:
+            log.info("app window: close from the page failed: %s", type(exc).__name__)
+            self.may_close = False
+            return False
+
     def _watchdog(self):
         """If the page never loads (WebView2 failed to start), close and fall back to the browser."""
         if not self.loaded.wait(LOAD_TIMEOUT_S):

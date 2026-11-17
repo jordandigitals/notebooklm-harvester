@@ -471,9 +471,19 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
         if worker.busy():
             return jsonify(error="A job is still running. Wait for it to finish, then quit."), 400
         phones.stop()  # the phone connection closes at once
+        close = app.config.get("close_window")
+        if close:
+            # Window mode: end the app the way closing the window does; the window's close ends the
+            # server and the process. If the window cannot close, stop the server as in a browser.
+            def _close_or_stop():
+                if not close() and stopper:
+                    stopper()
+
+            threading.Timer(0.3, _close_or_stop).start()
+            return jsonify(ok=True, window=True)
         if stopper:
             threading.Timer(0.3, stopper).start()
-        return jsonify(ok=True)
+        return jsonify(ok=True, window=False)
 
     @app.post("/api/focus")
     def focus_window():
@@ -1635,6 +1645,7 @@ def _show(app: Flask, cfg: dict, url: str, port: int) -> None:
         )
         app.config["APP_WINDOW"] = True
         app.config["focus"] = nw.focus
+        app.config["close_window"] = nw.close_from_page  # the page's Quit closes the window
         if nw.run():
             log.info("app window closed; stopping")
             app.config["WINDOW_CLOSED"] = True
@@ -1642,6 +1653,7 @@ def _show(app: Flask, cfg: dict, url: str, port: int) -> None:
         reason = "failed"
         app.config["APP_WINDOW"] = False
         app.config["focus"] = None
+        app.config["close_window"] = None
     log.info("opening in the browser (%s)", reason)
     if window.is_fallback(reason):
         app.config["WINDOW_NOTE"] = window.FALLBACK_NOTE

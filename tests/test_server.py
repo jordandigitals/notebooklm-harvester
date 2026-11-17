@@ -208,6 +208,54 @@ def test_quit_and_state_flags(client):
     assert stopped == [1]
 
 
+def test_quit_in_the_browser_stops_the_server_and_says_so(client):
+    """Browser mode is unchanged: the server stops and the page shows its stopped message."""
+    app, c = client
+    stopped = []
+    app.config["stop"] = lambda: stopped.append(1)
+    app.config["close_window"] = None
+    r = c.post("/api/quit", headers=H)
+    assert r.status_code == 200 and r.get_json() == {"ok": True, "window": False}
+    time.sleep(0.6)
+    assert stopped == [1]
+
+
+def test_quit_in_the_app_window_closes_the_window(client):
+    """Window mode: Quit closes the window (which ends the server and the process); no extra stop."""
+    app, c = client
+    stopped, closed = [], []
+    app.config["stop"] = lambda: stopped.append(1)
+    app.config["close_window"] = lambda: closed.append(1) or True
+    r = c.post("/api/quit", headers=H)
+    assert r.status_code == 200 and r.get_json() == {"ok": True, "window": True}
+    time.sleep(0.6)
+    assert closed == [1] and stopped == []
+
+
+def test_quit_in_the_app_window_stops_the_server_if_the_window_cannot_close(client):
+    app, c = client
+    stopped = []
+    app.config["stop"] = lambda: stopped.append(1)
+    app.config["close_window"] = lambda: False
+    assert c.post("/api/quit", headers=H).get_json()["window"] is True  # page: "close this window"
+    time.sleep(0.6)
+    assert stopped == [1]
+
+
+def test_quit_is_refused_while_a_job_runs_in_both_modes(client, monkeypatch):
+    app, c = client
+    stopped, closed = [], []
+    app.config["stop"] = lambda: stopped.append(1)
+    monkeypatch.setattr(app.config["worker"], "busy", lambda: True)
+    for close in (None, lambda: closed.append(1) or True):
+        app.config["close_window"] = close
+        r = c.post("/api/quit", headers=H)
+        assert r.status_code == 400
+        assert r.get_json()["error"] == "A job is still running. Wait for it to finish, then quit."
+    time.sleep(0.6)
+    assert stopped == [] and closed == []
+
+
 def test_no_running_instance_without_settings(home):
     assert server._running_url() is None
 

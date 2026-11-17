@@ -257,6 +257,28 @@ def test_close_during_a_harvest_yes_finishes_the_file_then_closes():
     assert nw._on_closing() is True
 
 
+def test_page_quit_closes_the_window_without_asking():
+    """The page's Quit (window mode): the server already refused it if a job runs, so no question."""
+    nw = _nw(_Worker(), ask=False)
+    assert nw.close_from_page() is True
+    assert nw.window.destroyed and nw.may_close
+    assert nw._on_closing() is True  # the close the destroy fires is let through
+
+
+def test_page_quit_reports_when_there_is_no_window_or_it_cannot_close():
+    nw = _nw(_Worker())
+    nw.window = None
+    assert nw.close_from_page() is False
+
+    class _Stuck(_FakeWindow):
+        def destroy(self):
+            raise RuntimeError("gone")
+
+    nw = _nw(_Worker())
+    nw.window = _Stuck()
+    assert nw.close_from_page() is False and not nw.may_close
+
+
 def test_focus_restores_and_raises_the_window(monkeypatch):
     """By the window's own handle, so a minimized window whose page has not loaded still comes back."""
     raised = []

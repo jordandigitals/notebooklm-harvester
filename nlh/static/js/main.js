@@ -336,9 +336,11 @@ async function init() {
   $("quit").addEventListener("click", async () => {
     if (!(await confirmDialog("Quit the harvester?", "You can start it again from its icon. Nothing is lost.", "Quit"))) return;
     try {
-      await api("/api/quit", { method: "POST" });
+      const res = await api("/api/quit", { method: "POST" });
+      // In the app window the window closes by itself; this text shows only if it cannot.
+      const where = res && res.window ? "window" : "tab";
       const box = el("main", "empty");
-      box.append(el("h2", "", "The harvester has stopped"), el("p", "", "You can close this tab. Start the app again from its icon when you need it."));
+      box.append(el("h2", "", "The harvester has stopped"), el("p", "", `You can close this ${where}. Start the app again from its icon when you need it.`));
       document.body.replaceChildren(box);
     } catch (err) { toast(err.message, "bad"); }
   });
