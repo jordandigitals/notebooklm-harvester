@@ -167,6 +167,9 @@ def activate() -> Path | None:
         return None
     home = Path(os.environ.get("NLH_DEMO_HOME") or tempfile.mkdtemp(prefix="nlh-demo-"))
     os.environ["NLH_HOME"] = str(home)
+    from nlh import log
+
+    log.reopen()  # demo log lines go to the demo home, never the real app log
     return home
 
 

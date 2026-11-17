@@ -112,7 +112,7 @@ export async function renderSettings() {
   defaults.append(dlab, vlab);
 
   // notifications
-  const notes = section("Notifications", "Messages in the page always appear. Optionally, the browser can also tell you when a long harvest ends while this tab is in the background.");
+  const notes = section("Notifications", "Messages in the page always appear. Optionally, you can also be told when a long harvest ends while the app is in the background.");
   const nlab = el("label", "check");
   const nbox = el("input");
   nbox.type = "checkbox";

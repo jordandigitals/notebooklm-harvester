@@ -86,8 +86,10 @@ def get_logger() -> logging.Logger:
     global _configured
     logger = logging.getLogger("nlh")
     if not _configured:
+        # delay=True: the file opens on the first line written, so a demo run that moves the app home
+        # right after start-up (demo.activate, then reopen) never touches the real log.
         handler = RotatingFileHandler(
-            paths.log_dir() / "nlh.log", maxBytes=1_000_000, backupCount=3, encoding="utf-8"
+            paths.log_dir() / "nlh.log", maxBytes=1_000_000, backupCount=3, encoding="utf-8", delay=True
         )
         handler.setFormatter(RedactingFormatter("%(asctime)s %(levelname)s %(message)s"))
         handler.addFilter(RedactFilter())
@@ -98,3 +100,16 @@ def get_logger() -> logging.Logger:
         logging.getLogger("notebooklm").setLevel(logging.ERROR)
         _configured = True
     return logger
+
+
+def reopen() -> logging.Logger:
+    """Point the log file at the current app home. Demo mode calls this after it moves the app home,
+    because modules open the logger when they are imported, before demo mode starts."""
+    global _configured
+    logger = logging.getLogger("nlh")
+    for h in list(logger.handlers):
+        if isinstance(h, RotatingFileHandler):
+            logger.removeHandler(h)
+            h.close()
+    _configured = False
+    return get_logger()

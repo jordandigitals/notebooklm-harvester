@@ -687,3 +687,26 @@ def test_no_message_when_the_browser_reached_google_itself(home, monkeypatch):
     finally:
         adapter.set_signin_note(None)
     assert page.tries == 2 and notes == []
+
+
+def test_demo_logs_stay_in_the_demo_home(tmp_path, monkeypatch):
+    """Demo mode moves the app home after modules opened the logger; its lines must not reach the real log."""
+    import os
+    from pathlib import Path
+
+    from nlh import demo
+    from nlh import log as nlh_log
+
+    real = Path(os.environ["NLH_HOME"])
+    demo_home = tmp_path / "demo-home"
+    monkeypatch.setenv("NLH_DEMO", "1")
+    monkeypatch.setenv("NLH_DEMO_HOME", str(demo_home))
+    try:
+        demo.activate()
+        nlh_log.get_logger().info("demo line 7f3a")
+        assert "demo line 7f3a" in (demo_home / "logs" / "nlh.log").read_text(encoding="utf-8")
+        real_log = real / "logs" / "nlh.log"
+        assert not real_log.exists() or "demo line 7f3a" not in real_log.read_text(encoding="utf-8")
+    finally:
+        os.environ["NLH_HOME"] = str(real)
+        nlh_log.reopen()

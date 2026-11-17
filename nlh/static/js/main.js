@@ -99,6 +99,22 @@ async function loadState() {
   return st;
 }
 
+// The search box placeholder: the longest wording that fits the box, cut only at a word, never mid word
+// ("...accounts, fil" at the app window's first width). The label and description keep the full text.
+const Q_PLACEHOLDERS = ["Search titles, notebooks, accounts, files", "Search titles, notebooks, accounts", "Search titles, notebooks", "Search"];
+let measureCtx = null;
+
+/** Pick the placeholder that fits the search box now. */
+export function fitPlaceholder() {
+  const q = $("q");
+  if (!q || !q.clientWidth) return;
+  const cs = getComputedStyle(q);
+  const room = q.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - 4;
+  measureCtx = measureCtx || document.createElement("canvas").getContext("2d");
+  measureCtx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+  q.placeholder = Q_PLACEHOLDERS.find((t) => measureCtx.measureText(t).width <= room) || Q_PLACEHOLDERS[Q_PLACEHOLDERS.length - 1];
+}
+
 /** sessionStorage that never throws (private windows can refuse it). */
 function sessionStorageGet(key) { try { return sessionStorage.getItem(key); } catch (e) { return null; } }
 function sessionStorageSet(key, value) { try { sessionStorage.setItem(key, value); } catch (e) { /* ignore */ } }
@@ -273,6 +289,9 @@ async function init() {
 
   // search box: instant, over the whole listing
   $("q").addEventListener("input", () => { show($("q-clear"), !!$("q").value); setQuery($("q").value); });
+  fitPlaceholder();
+  if (window.ResizeObserver) new ResizeObserver(() => fitPlaceholder()).observe($("q"));
+  else window.addEventListener("resize", fitPlaceholder);
   $("q-clear").addEventListener("click", () => { $("q").value = ""; show($("q-clear"), false); setQuery(""); $("q").focus(); });
   $("q-help").addEventListener("click", (e) => searchHelp(e.currentTarget));
 
