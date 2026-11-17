@@ -5,7 +5,7 @@ import { $, el, button, size, plural } from "./dom.js";
 import { toast, confirmDialog } from "./ui.js";
 import { openFolderPicker, acctState } from "./accounts.js";
 
-export const prefs = { settings: null, views: [], onTheme: () => {} };
+export const prefs = { settings: null, views: [], onTheme: () => {}, appWindow: false, windows: false };
 
 /** Apply a theme now: auto follows the system. */
 export function applyTheme(theme) {
@@ -126,6 +126,25 @@ export async function renderSettings() {
   });
   nlab.append(nbox, el("span", "lbl", "Tell me when a long harvest ends"));
   notes.append(nlab);
+  if (prefs.appWindow) {
+    // D-035: the app window cannot show browser notifications; the switch stays, disabled, and says why.
+    nbox.disabled = true;
+    nlab.classList.add("is-disabled");
+    notes.append(el("p", "hint notify-window-note", "Notifications work when the app is open in your browser."));
+  }
+
+  // where the app opens (D-035, Windows)
+  let wcard = null;
+  if (prefs.windows) {
+    wcard = section("App window", "The app opens in its own window. Choose the browser instead if the window does not suit this computer.");
+    const wlab = el("label", "field", "Open the app in");
+    const wsel = el("select", "select");
+    for (const [v, t] of [["window", "App window"], ["browser", "Browser"]]) { const o = el("option", "", t); o.value = v; wsel.append(o); }
+    wsel.value = st.open_in || "window";
+    wsel.addEventListener("change", () => save({ open_in: wsel.value }, "Saved. This takes effect the next time the app starts."));
+    wlab.append(wsel);
+    wcard.append(wlab);
+  }
 
   // Studio (D-025)
   const studioCard = section("Studio",
@@ -229,7 +248,7 @@ export async function renderSettings() {
   det.append(npre);
   about.append(det);
 
-  wrap.append(theme, naming, defaults, studioCard, phoneCard, notes, diag, trash, about);
+  wrap.append(theme, naming, defaults, studioCard, phoneCard, notes, ...(wcard ? [wcard] : []), diag, trash, about);
   view.replaceChildren(wrap);
 }
 

@@ -459,6 +459,8 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
             accounts=[account_view(a) for a in led.accounts()],
             jobs=current,
             role="phone" if g.get("phone") else "laptop",
+            app_window=bool(app.config.get("APP_WINDOW")),  # D-035: the page is shown in the app window
+            window_note=app.config.get("WINDOW_NOTE", ""),  # D-035: one plain line when it fell back
         )
 
     @app.post("/api/quit")
@@ -471,6 +473,14 @@ def create_app(token: str, ledger: Ledger | None = None) -> Flask:
         if stopper:
             threading.Timer(0.3, stopper).start()
         return jsonify(ok=True)
+
+    @app.post("/api/focus")
+    def focus_window():
+        """Bring the app window to the front (a second start asks this; D-035). 409 without a window."""
+        focus = app.config.get("focus")
+        if not focus:
+            return jsonify(error="The app is open in a browser, not in its own window."), 409
+        return jsonify(ok=bool(focus()))
 
     @app.get("/api/trash")
     def trash_list():
@@ -1534,19 +1544,27 @@ def quiet_request_log() -> None:
 
 
 def serve(open_browser: bool = True) -> int:
-    """Start the local server and open the page in the default browser."""
+    """Start the local server and show it: in the app window (D-035) or the default browser.
+
+    open_browser False (tests, NLH_NO_BROWSER=1) shows nothing: no window and no browser.
+    """
     from werkzeug.serving import make_server
+
+    from nlh import window
 
     quiet_request_log()
     if demo.enabled():
         demo.prepare()  # synthetic data in a temporary app home; never the real one
     lock = paths.AppLock()
     if not lock.acquire():
-        # Another process owns this app home (FINDING-2): show its page instead.
+        # Another process owns this app home (FINDING-2): bring its window forward, else show its page.
         running = _running_url()
         _say(f"{APP_NAME} is already running.")
         if running and open_browser:
-            webbrowser.open(running)
+            if not _focus_running():
+                webbrowser.open(running)
+        elif not running and open_browser:
+            window.message_box(f"{APP_NAME} is starting or stopping. Try again in a few seconds.")
         elif not running:
             _say("Another copy is starting or stopping. Try again in a few seconds.")
         return 0
@@ -1572,12 +1590,80 @@ def serve(open_browser: bool = True) -> int:
     _say(f"{APP_NAME} is running. If the page did not open, use the address in your browser:")
     _say(url)
     _say("Close this window (or press Ctrl+C) to stop, or use Quit on the page.")
-    if open_browser:
-        threading.Timer(0.8, lambda: webbrowser.open(url)).start()
+    # The server runs in its own thread: a native window needs the main thread (D-035).
+    server_thread = threading.Thread(target=server.serve_forever, name="nlh-server", daemon=True)
+    server_thread.start()
     try:
-        server.serve_forever()
+        if open_browser:
+            _show(app, cfg, url, port)
+        while server_thread.is_alive() and not app.config.get("WINDOW_CLOSED"):
+            server_thread.join(0.5)  # browser mode: until Quit (or Ctrl+C)
     except KeyboardInterrupt:
         pass
     finally:
+        try:
+            app.config["PHONES"].stop()
+        except Exception:
+            pass
+        server.shutdown()
+        server_thread.join(5)
         lock.release()
     return 0
+
+
+def _show(app: Flask, cfg: dict, url: str, port: int) -> None:
+    """Open the app window and wait until it closes; or, when it cannot or must not, the browser."""
+    from nlh import window
+
+    forced = window.forced_browser(sys.argv[1:], dict(os.environ), cfg.get("open_in", "window"))
+    webview2 = None if forced else window.webview2_version()
+    reason = window.decide(platform=sys.platform, forced=forced, webview2=webview2, importable=True)
+    webview = None
+    if reason is None:
+        webview = window.load_webview()
+        if webview is None:
+            reason = "no_library"
+    if reason is None:
+        nw = window.NativeWindow(
+            webview,
+            url,
+            port,
+            app.config["worker"],
+            cfg.get("window_bounds"),
+            lambda b: app_settings.save({"window_bounds": b}),
+        )
+        app.config["APP_WINDOW"] = True
+        app.config["focus"] = nw.focus
+        if nw.run():
+            log.info("app window closed; stopping")
+            app.config["WINDOW_CLOSED"] = True
+            return
+        reason = "failed"
+        app.config["APP_WINDOW"] = False
+        app.config["focus"] = None
+    log.info("opening in the browser (%s)", reason)
+    if window.is_fallback(reason):
+        app.config["WINDOW_NOTE"] = window.FALLBACK_NOTE
+    threading.Timer(0.8, lambda: webbrowser.open(url)).start()
+
+
+def _focus_running() -> bool:
+    """Ask the running app to bring its window to the front (D-035). False if it has none or fails."""
+    import urllib.request
+
+    from nlh import window
+
+    settings = paths.app_home() / "server.json"
+    try:
+        cfg = json.loads(settings.read_text(encoding="utf-8"))
+        window.allow_focus_from_other_process()
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{cfg['port']}/api/focus",
+            data=b"{}",
+            method="POST",
+            headers={"X-NLH-Token": cfg["token"], "Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return bool(json.loads(resp.read()).get("ok"))
+    except Exception:  # no window (browser mode), gone, or not answering: open the page instead
+        return False

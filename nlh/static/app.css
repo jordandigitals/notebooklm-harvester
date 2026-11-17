@@ -587,3 +587,6 @@ body.has-player.has-selection .backtop { bottom: 220px; }
 .recent-list li.is-missing code { color: var(--muted); text-decoration: line-through; }
 .quick-picks { margin-top: var(--s2); }
 @media (max-width: 600px) { .recent-list code { flex-basis: 100%; } }
+/* D-035: a switch that does not apply in the app window stays visible, disabled, with its reason */
+.check.is-disabled { opacity: 0.7; cursor: not-allowed; }
+.check.is-disabled input { cursor: not-allowed; }

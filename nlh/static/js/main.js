@@ -80,6 +80,15 @@ async function loadState() {
   const banners = $("banners");
   // Tool and demo banners come from the server inside the page (no shift); only add the rest.
   banners.querySelector(".portable-banner")?.remove();
+  banners.querySelector(".window-banner")?.remove();
+  prefs.appWindow = !!st.app_window;
+  prefs.windows = !!st.windows;
+  // D-035: the app window could not open, so the page is in the browser. One plain line, dismissable.
+  if (st.window_note && !role.phone && !sessionStorageGet("nlh-window-note-seen")) {
+    const n = noticeBanner("info window-banner", st.window_note);
+    n.append(button("OK", { cls: "btn btn-sm", onClick: () => { sessionStorageSet("nlh-window-note-seen", "1"); n.remove(); } }));
+    banners.append(n);
+  }
   if (st.portable && !st.portable_ack && !role.phone) {
     const n = noticeBanner("warn portable-banner", "Portable mode. This copy keeps its data, including your Google sign-ins, in the \"data\" folder beside the app. Do not keep it on a shared drive or a drive you might lose, and do not hand that folder to anyone.");
     n.append(button("I understand", { cls: "btn btn-sm", onClick: async () => { await api("/api/portable-ack", { method: "POST" }); n.remove(); } }));
@@ -89,6 +98,18 @@ async function loadState() {
   if (running && !app.jobId) { app.jobId = running.id; poll(); }
   return st;
 }
+
+/** sessionStorage that never throws (private windows can refuse it). */
+function sessionStorageGet(key) { try { return sessionStorage.getItem(key); } catch (e) { return null; } }
+function sessionStorageSet(key, value) { try { sessionStorage.setItem(key, value); } catch (e) { /* ignore */ } }
+
+/** Called by the app window when the person quits during a harvest (D-035). */
+window.__nlhClosing = () => {
+  const banners = $("banners");
+  banners.querySelector(".closing-banner")?.remove();
+  banners.append(noticeBanner("warn closing-banner", "Finishing the current file, then closing."));
+  toast("Finishing the current file, then closing.", "warn", 600000);
+};
 
 function noticeBanner(kind, text) {
   const n = el("div", `notice notice-${kind}`);

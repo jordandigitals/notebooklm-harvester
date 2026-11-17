@@ -43,6 +43,7 @@ Get-ChildItem dist -Filter "NotebookLM-Harvester-win-*" -ErrorAction SilentlyCon
 $Root = (Get-Location).Path
 & "$BuildVenv\Scripts\pyinstaller.exe" --noconfirm --clean --windowed `
     --name $Name `
+    --icon "$Root\packaging\app.ico" `
     --workpath build\pyinstaller --distpath dist --specpath build\pyinstaller `
     --add-data "$Root\nlh\static;nlh\static" `
     --add-binary "$Root\$FfDir\bin\ffmpeg.exe;." `
@@ -50,6 +51,9 @@ $Root = (Get-Location).Path
     --collect-all notebooklm `
     --collect-all rookie_cookies `
     --collect-all playwright `
+    --collect-all webview `
+    --collect-all pythonnet `
+    --collect-all clr_loader `
     nlh\app_entry.py
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed" }
 

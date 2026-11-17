@@ -83,11 +83,14 @@ DEFAULTS = {
     # Library layout (D-032): the account card's More part and the harvest Details stay as left.
     "account_card_open": False,
     "job_details_open": False,
+    # Native app window (D-035): "window" (default) or "browser"; the window's last place on this computer.
+    "open_in": "window",
+    "window_bounds": None,
     # Remembered folders (D-033): chosen output folders, most recent first, per computer.
     "recent_folders": [],
 }
 # Keys the server sets itself (the generic settings route refuses them).
-SERVER_ONLY = frozenset({"phone_enabled", "phone_port", "phone_address", "recent_folders"})
+SERVER_ONLY = frozenset({"phone_enabled", "phone_port", "phone_address", "recent_folders", "window_bounds"})
 RECENT_MAX = 10
 STUDIO_CAP_RANGE = (1, 20)
 STUDIO_PAUSE_RANGE = (30, 300)
@@ -227,6 +230,18 @@ def validate(update: dict) -> dict:
                 or not all(isinstance(v, str) and 0 < len(v) <= MAX_TEXT for v in value)
             ):
                 raise SettingsError("The list of remembered folders is not valid.")
+        elif key == "open_in":
+            if value not in ("window", "browser"):
+                raise SettingsError("Choose the app window or the browser.")
+        elif key == "window_bounds":
+            if value is not None and (
+                not isinstance(value, list)
+                or len(value) != 4
+                or not all(
+                    isinstance(v, int) and not isinstance(v, bool) and -100000 < v < 100000 for v in value
+                )
+            ):
+                raise SettingsError("The window place is not valid.")
         elif key == "views":
             if not isinstance(value, list) or len(value) > MAX_VIEWS:
                 raise SettingsError(f"At most {MAX_VIEWS} saved views.")
