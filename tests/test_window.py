@@ -167,6 +167,14 @@ def test_clamp_bounds():
     assert window.clamp_bounds([0, 0, 4000, 3000], screens) == (0, 0, 1920, 1040)
 
 
+def test_first_size_fits_the_screen():
+    """A 1280 x 820 window would run under the taskbar on a small or scaled screen: shrink and centre it."""
+    assert window.first_size([(0, 0, 1536, 824)]) == (0 + (1536 - 1280) // 2, (824 - 758) // 2, 1280, 758)
+    assert window.first_size([(0, 0, 2560, 1400)]) == ((2560 - 1280) // 2, (1400 - 820) // 2, 1280, 820)
+    assert window.first_size([(0, 0, 300, 400)])[2:] == window.MIN_SIZE  # never below the minimum
+    assert window.first_size([])[2:] == window.DEFAULT_SIZE
+
+
 def test_window_settings_are_validated(home):
     s = app_settings.load()
     assert s["open_in"] == "window" and s["window_bounds"] is None

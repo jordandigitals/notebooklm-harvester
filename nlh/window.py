@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import ctypes
 import importlib
-import os
 import sys
 import threading
 import time
@@ -114,7 +113,7 @@ def allowed_url(url: str, port: int) -> bool:
 
 def unique_path(folder: Path, name: str) -> Path:
     """A new file name in folder: name, then "name (2)", "name (3)"... (never overwrites)."""
-    name = Path(name).name or "download"
+    name = str(name).replace("\\", "/").rsplit("/", 1)[-1] or "download"  # either separator, any system
     stem, suffix = Path(name).stem, Path(name).suffix
     candidate = folder / name
     n = 2
@@ -154,8 +153,28 @@ def clamp_bounds(bounds, screens: list[tuple[int, int, int, int]]) -> tuple[int,
     return None
 
 
+def _scale() -> float:
+    """Display scale (1.25 at 125 %); pywebview sizes and positions are in these logical pixels."""
+    try:
+        return max(ctypes.windll.user32.GetDpiForSystem() / 96.0, 1.0)
+    except Exception:
+        return 1.0
+
+
+def first_size(work: list[tuple[int, int, int, int]]) -> tuple[int, int, int, int]:
+    """The window's place on its first start: DEFAULT_SIZE, shrunk to fit the first screen's work area
+    (with a margin, so it is never under the taskbar), and centred."""
+    if not work:  # screen sizes unknown: the plain default
+        return 100, 100, *DEFAULT_SIZE
+    sx, sy, sw, sh = work[0]
+    w = max(MIN_SIZE[0], min(DEFAULT_SIZE[0], int(sw * 0.92)))
+    h = max(MIN_SIZE[1], min(DEFAULT_SIZE[1], int(sh * 0.92)))
+    return sx + max(0, (sw - w) // 2), sy + max(0, (sh - h) // 2), w, h
+
+
 def screens() -> list[tuple[int, int, int, int]]:
-    """Work areas of the attached screens (Windows), as (x, y, width, height)."""
+    """Work areas of the attached screens (Windows), as (x, y, width, height) in logical pixels, the same
+    units pywebview uses (the primary screen first)."""
     if sys.platform != "win32":
         return []
     from ctypes import wintypes
@@ -178,11 +197,16 @@ def screens() -> list[tuple[int, int, int, int]]:
         mi.cbSize = ctypes.sizeof(MONITORINFO)
         if ctypes.windll.user32.GetMonitorInfoW(hmon, ctypes.byref(mi)):
             r = mi.rcWork
-            found.append((r.left, r.top, r.right - r.left, r.bottom - r.top))
+            area = (r.left, r.top, r.right - r.left, r.bottom - r.top)
+            if mi.dwFlags & 1:  # MONITORINFOF_PRIMARY
+                found.insert(0, area)
+            else:
+                found.append(area)
         return True
 
     ctypes.windll.user32.EnumDisplayMonitors(None, None, proc(cb), 0)
-    return found
+    k = _scale()
+    return [(int(x / k), int(y / k), int(w / k), int(h / k)) for x, y, w, h in found]
 
 
 def allow_focus_from_other_process() -> None:
@@ -235,7 +259,7 @@ def install_guards(edgechromium, port: int) -> None:
         return original_nav(self, sender, args)
 
     def on_download_starting(self, sender, args):
-        target = unique_path(downloads_folder(), os.path.basename(str(args.ResultFilePath)))
+        target = unique_path(downloads_folder(), str(args.ResultFilePath))
         args.ResultFilePath = str(target)
         log.info("app window: download saved as %s", target.name)
 
@@ -356,8 +380,8 @@ class NativeWindow:
         """Open the window and block until it closes. False if it could not open (use the browser)."""
         try:
             install_guards(importlib.import_module("webview.platforms.edgechromium"), self.port)
-            w, h = DEFAULT_SIZE
-            kw = {"width": w, "height": h}
+            x, y, w, h = first_size(screens())
+            kw = {"x": x, "y": y, "width": w, "height": h}
             if self.bounds:
                 kw = {
                     "x": self.bounds[0],
